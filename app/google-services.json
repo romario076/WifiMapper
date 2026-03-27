@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "367819230285",
+    "project_id": "wifimapper-a20b8",
+    "storage_bucket": "wifimapper-a20b8.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:367819230285:android:70e79979f32099a1aae004",
+        "android_client_info": {
+          "package_name": "com.melnykroman.wifimapper"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "367819230285-61a82l0e97pk2tlerli5s6ng75sr7vla.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.melnykroman.wifimapper",
+            "certificate_hash": "44bd164e01219197ca48be5d4f533d7051f96e61"
+          }
+        },
+        {
+          "client_id": "367819230285-irt8nugnphbq6ns6c12btrgitrtseto7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTIND8SRmQ7j-IY9ct9mtzQzX6VQqQOjg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "367819230285-irt8nugnphbq6ns6c12btrgitrtseto7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

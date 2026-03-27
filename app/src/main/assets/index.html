@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>WiFi Mapper &amp; Analytics</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- ════════ LOGIN OVERLAY ════════ -->
+    <div id="login-overlay" class="login-overlay hidden">
+        <div class="login-card glass-panel">
+            <div class="login-logo">📡</div>
+            <h1 class="login-title">WiFi <span>Mapper</span></h1>
+            <p class="login-subtitle">Map your connections, sync across devices</p>
+            <button id="google-signin-btn" class="btn-google">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <path
+                        d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                        fill="#4285F4" />
+                    <path
+                        d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                        fill="#34A853" />
+                    <path
+                        d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                        fill="#FBBC05" />
+                    <path
+                        d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                        fill="#EA4335" />
+                </svg>
+                Sign in with Google
+            </button>
+            <p id="login-error" class="login-error hidden"></p>
+        </div>
+    </div>
+
+    <!-- ════════ MAIN APP ════════ -->
+    <div class="dashboard" id="main-app">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="sidebar-header">
+                <h1 class="logo" style="display: flex; align-items: center; gap: 8px;">
+                    <span>WiFi <span style="color: var(--teal);">Mapper</span></span>
+                    <svg width="32" height="32" viewBox="0 0 24 24"
+                        style="filter: drop-shadow(0 0 4px rgba(20, 184, 166, 0.4)); margin-top:-2px;">
+                        <path d="M9.5 22L11 11H13L14.5 22H9.5Z" fill="url(#tower)" />
+                        <g transform="translate(12, 11)">
+                            <g class="windmill-spin">
+                                <g transform="rotate(0)">
+                                    <path d="M 0 0 C 5 -3 5 -9 0 -9 C -1 -5 -1 -2 0 0" fill="var(--teal)"
+                                        opacity="0.9" />
+                                </g>
+                                <g transform="rotate(90)">
+                                    <path d="M 0 0 C 5 -3 5 -9 0 -9 C -1 -5 -1 -2 0 0" fill="var(--teal)"
+                                        opacity="0.9" />
+                                </g>
+                                <g transform="rotate(180)">
+                                    <path d="M 0 0 C 5 -3 5 -9 0 -9 C -1 -5 -1 -2 0 0" fill="var(--teal)"
+                                        opacity="0.9" />
+                                </g>
+                                <g transform="rotate(270)">
+                                    <path d="M 0 0 C 5 -3 5 -9 0 -9 C -1 -5 -1 -2 0 0" fill="var(--teal)"
+                                        opacity="0.9" />
+                                </g>
+                                <circle cx="0" cy="0" r="1.5" fill="#e2e8f0" />
+                            </g>
+                        </g>
+                        <defs>
+                            <linearGradient id="tower" x1="9.5" y1="11" x2="14.5" y2="22"
+                                gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#94a3b8" />
+                                <stop offset="1" stop-color="#475569" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                </h1>
+                <!-- User Info -->
+                <div class="user-info" id="user-info-block">
+                    <img class="user-avatar" id="user-avatar" src="" alt="avatar">
+                    <div class="user-details" id="user-details-container">
+                        <p class="user-name" id="user-name">Loading…</p>
+                        <p class="user-email" id="user-email"></p>
+                    </div>
+                    <button class="user-signout-btn" id="signout-btn" title="Sign out">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                            <polyline points="10 17 15 12 10 7"></polyline>
+                            <line x1="15" y1="12" x2="3" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-target="map-view"><span class="icon">📍</span> <span class="nav-text">Live
+                        Map</span></li>
+                <li data-target="stats-view"><span class="icon">📊</span> <span class="nav-text">Statistics</span></li>
+                <li data-target="info-view"><span class="icon">ℹ️</span> <span class="nav-text">Info</span></li>
+                <li data-target="settings-view"><span class="icon">⚙️</span> <span class="nav-text">Settings</span></li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content">
+            <!-- Map View -->
+            <section id="map-view" class="view active">
+                <div id="map"></div>
+                <!-- Action Bar -->
+                <div
+                    style="position: absolute; bottom: max(32px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display:flex; gap: 12px; width: 90%; max-width: 400px; z-index: 1000; align-items: center; justify-content: space-between;">
+                    <button id="refresh-map-btn" class="glass-btn"
+                        style="position: static; transform: none; width: 48px; height: 48px; min-width: 48px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.3);"
+                        title="Refresh Data">🔄</button>
+
+                    <button id="register-btn" class="glass-btn"
+                        style="position: static; transform: none; flex: 1; width: auto; height: 48px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px;">Register
+                        network</button>
+
+                    <button id="my-location-btn" class="glass-btn"
+                        style="position: static; transform: none; width: 48px; height: 48px; min-width: 48px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);"
+                        title="Show My Location">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <line x1="12" y1="2" x2="12" y2="6"></line>
+                            <line x1="12" y1="18" x2="12" y2="22"></line>
+                            <line x1="2" y1="12" x2="6" y2="12"></line>
+                            <line x1="18" y1="12" x2="22" y2="12"></line>
+                        </svg>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Settings View -->
+            <section id="settings-view" class="view">
+                <header class="stats-header">
+                    <h2 style="padding: 2rem 2rem 0;">Settings</h2>
+                </header>
+                <div class="glass-panel" style="max-width: 600px; margin: 0 2rem 2rem;">
+                    <form id="settings-form">
+                        <div class="form-group">
+                            <label for="app-theme-select">App Theme:</label>
+                            <select id="app-theme-select" class="form-control">
+                                <option value="dark">Dark Theme (Default)</option>
+                                <option value="light">Light Theme</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="map-theme-select">Map Theme:</label>
+                            <select id="map-theme-select" class="form-control">
+                                <option value="dark">Dark Matter (CartoDB)</option>
+                                <option value="light">Positron (CartoDB)</option>
+                                <option value="voyager">Voyager (CartoDB)</option>
+                                <option value="street">Street Map (OSM)</option>
+                                <option value="esri_street">Modern Street (Esri)</option>
+                                <option value="topo">Topographic (OpenTopoMap)</option>
+                                <option value="satellite">Satellite (Esri)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cluster-density-select">Grouping Density (Zoom out):</label>
+                            <select id="cluster-density-select" class="form-control">
+                                <option value="80">High (Max speed, fewer clusters)</option>
+                                <option value="40">Medium (Balanced)</option>
+                                <option value="20">Low (Detailed, more clusters)</option>
+                                <option value="0">Off (Show all pins, may lag)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>App Font Size:</label>
+                            <div class="font-size-picker" id="app-font-picker">
+                                <button type="button" class="font-btn" data-size="8px">3XS</button>
+                                <button type="button" class="font-btn" data-size="10px">XXS</button>
+                                <button type="button" class="font-btn" data-size="12px">S</button>
+                                <button type="button" class="font-btn active" data-size="14px">M</button>
+                                <button type="button" class="font-btn" data-size="16px">L</button>
+                                <button type="button" class="font-btn" data-size="18px">XL</button>
+                                <button type="button" class="font-btn" data-size="20px">XXL</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Map Marker Size:</label>
+                            <div class="font-size-picker" id="marker-size-picker">
+                                <button type="button" class="marker-btn" data-size="0.3">XXS</button>
+                                <button type="button" class="marker-btn" data-size="0.5">XS</button>
+                                <button type="button" class="marker-btn" data-size="0.7">S</button>
+                                <button type="button" class="marker-btn active" data-size="1.0">M</button>
+                                <button type="button" class="marker-btn" data-size="1.3">L</button>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                <span>⚡ Auto-Track Wi-Fi Networks</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="auto-track-toggle">
+                                    <span class="slider round"></span>
+                                </label>
+                            </label>
+                            <p
+                                style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
+                                Automatically registers a location point every time you connect to a new Wi-Fi network,
+                                even when the app is in the background.</p>
+                        </div>
+                        <div class="form-group"
+                            style="padding-left: 20px; border-left: 2px solid rgba(255,255,255,0.1); margin-top: 0.5rem;">
+                            <label for="auto-track-cooldown-select">Anti-Spam Filter Threshold:</label>
+                            <select id="auto-track-cooldown-select" class="form-control">
+                                <option value="5">Ignore reconnects within 5 mins</option>
+                                <option value="15">Ignore reconnects within 15 mins</option>
+                                <option value="30">Ignore reconnects within 30 mins</option>
+                                <option value="60" selected>Ignore reconnects within 1 hour</option>
+                                <option value="360">Ignore reconnects within 6 hours</option>
+                                <option value="720">Ignore reconnects within 12 hours</option>
+                                <option value="1440">Ignore reconnects within 24 hours</option>
+                            </select>
+                            <p style="font-size: 0.75rem; color: var(--slate-light); margin-top: 4px;">Prevents
+                                duplicate history notes if connection is unstable.</p>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                <span>🔕 Silent Auto-Track (No Popups)</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="silent-track-toggle">
+                                    <span class="slider round"></span>
+                                </label>
+                            </label>
+                            <p
+                                style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
+                                Hides new network alerts while Auto-Track runs in the background. The app will quietly
+                                collect points.</p>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                <span>Share My Map with Friends</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="public-map-toggle">
+                                    <span class="slider round"></span>
+                                </label>
+                            </label>
+                            <p
+                                style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
+                                Allows other users to view your tracked locations on their Friends Map.</p>
+                        </div>
+                        <div class="form-group" style="margin-top: 2rem;">
+                            <label>Data Management:</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+                                <button type="button" class="btn secondary" id="export-data-btn"
+                                    style="flex: 1; border-color: rgba(20, 184, 166, 0.4); color: var(--teal);">Export
+                                    Backup</button>
+                                <button type="button" class="btn primary" id="import-data-btn" style="flex: 1;">Import
+                                    File</button>
+                            </div>
+                            <button type="button" class="btn danger" id="clear-data-btn" style="width: 100%;">Clear All
+                                Saved Networks</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Info View -->
+            <section id="info-view" class="view">
+                <div style="padding: 1.5rem 1rem 0;">
+                    <h2
+                        style="font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; filter: drop-shadow(0 0 12px rgba(20,184,166,0.35));">
+                        About WiFi Mapper <span style="font-size: 1.5rem;">🌍</span>
+                    </h2>
+                    <p style="color: var(--slate-light); font-size: 0.95rem; margin-top: 6px; line-height: 1.6;">
+                        Your personal digital map of every connected place on Earth.
+                    </p>
+                </div>
+
+                <!-- Hero tagline -->
+                <div class="glass-panel"
+                    style="margin: 1rem; background: linear-gradient(135deg, rgba(20,184,166,0.12) 0%, rgba(99,102,241,0.12) 100%); border: 1px solid rgba(20,184,166,0.25); text-align: center; padding: 1.5rem 1.2rem;">
+                    <p style="font-size: 1.1rem; font-weight: 600; color: #fff; line-height: 1.7; margin: 0;">
+                        Every Wi-Fi network you join is a story.<br>
+                        <span style="color: var(--teal);">WiFi Mapper</span> turns those moments into
+                        <span style="color: #818cf8;">a beautiful living map</span> — built automatically, without any
+                        effort.
+                    </p>
+                </div>
+
+                <!-- Feature Cards grid -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 1rem 1rem;">
+                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #14b8a6;">
+                        <div style="font-size: 1.6rem; margin-bottom: 6px;">⚡</div>
+                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Live
+                            Auto-Track</strong>
+                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                            Connects in the background every time you join a new Wi-Fi — even when the app is closed.
+                        </p>
+                    </div>
+                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #818cf8;">
+                        <div style="font-size: 1.6rem; margin-bottom: 6px;">🔕</div>
+                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Silent
+                            Mode</strong>
+                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                            Track quietly without popups. Points are collected in the background with no interruptions.
+                        </p>
+                    </div>
+                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #3b82f6;">
+                        <div style="font-size: 1.6rem; margin-bottom: 6px;">🏔️</div>
+                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Altitude
+                            Tracking</strong>
+                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                            Captures elevation for each point using GPS — no internet download needed. Instant.
+                        </p>
+                    </div>
+                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #f59e0b;">
+                        <div style="font-size: 1.6rem; margin-bottom: 6px;">📊</div>
+                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Smart
+                            Statistics</strong>
+                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                            Altitude overview, dynamic histogram and your last 10 visits — all in one crisp dashboard.
+                        </p>
+                    </div>
+                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #10b981;">
+                        <div style="font-size: 1.6rem; margin-bottom: 6px;">☁️</div>
+                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Cloud
+                            Sync</strong>
+                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                            All your data is live-synced to Firebase Firestore. Sign in anywhere, your map follows.
+                        </p>
+                    </div>
+                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #ec4899;">
+                        <div style="font-size: 1.6rem; margin-bottom: 6px;">🔄</div>
+                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">History &
+                            Reconnects</strong>
+                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                            Know when you returned to a familiar place and trace your full connection timeline.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- How to use quick guide -->
+                <div class="glass-panel" style="margin: 0 1rem 1rem; padding: 1.2rem;">
+                    <h4
+                        style="color: var(--teal); font-size: 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.07); padding-bottom: 0.5rem;">
+                        🚀 Getting Started in 3 steps
+                    </h4>
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                            <div
+                                style="background: rgba(20,184,166,0.15); color: var(--teal); font-size: 0.8rem; font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(20,184,166,0.3);">
+                                1</div>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.9rem;">Sign in with Google</strong>
+                                <p style="color: var(--slate-light); font-size: 0.82rem; margin: 2px 0 0;">Your map is
+                                    tied to your account and synced automatically.</p>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                            <div
+                                style="background: rgba(99,102,241,0.15); color: #818cf8; font-size: 0.8rem; font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.3);">
+                                2</div>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.9rem;">Enable Auto-Track in Settings</strong>
+                                <p style="color: var(--slate-light); font-size: 0.82rem; margin: 2px 0 0;">Grant "Allow
+                                    all the time" location permission for best results.</p>
+                            </div>
+                        </div>
+                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                            <div
+                                style="background: rgba(245,158,11,0.15); color: #f59e0b; font-size: 0.8rem; font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(245,158,11,0.3);">
+                                3</div>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.9rem;">Live your life — the map builds
+                                    itself</strong>
+                                <p style="color: var(--slate-light); font-size: 0.82rem; margin: 2px 0 0;">Or pin points
+                                    manually any time by tapping "Register Network".</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass-panel" style="margin: 0 1rem 1.5rem; padding: 1.5rem;">
+                    <h3
+                        style="margin-top: 0; color: var(--teal); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                        <span>🤖</span> Auto-Track Smart Filter
+                    </h3>
+                    <p style="color: var(--slate-light); font-size: 0.9rem; line-height: 1.5; margin-bottom: 0;">
+                        When <strong>Auto-Track</strong> is enabled, WiFi Mapper works silently in the background. To
+                        prevent database spam (e.g., from frequent brief disconnects), it uses a <strong>smart
+                            cooldown</strong>. If you reconnect to the exact same network within <strong
+                            id="info-cooldown-text">1 hour</strong> (configurable in Settings), the
+                        connection is ignored. This keeps your timeline clean and saves battery.
+                    </p>
+                </div>
+
+                <!-- Footer -->
+                <div
+                    style="text-align: center; padding: 1rem 1rem 1.5rem; border-top: 1px dashed rgba(255,255,255,0.08); margin: 0 1rem;">
+                    <p style="color: var(--slate-light); font-size: 0.85rem;">Developer: <strong
+                            style="color: var(--teal);">Roman Melnyk</strong></p>
+                    <p style="color: var(--slate-light); font-size: 0.8rem; margin-top: 4px;">Built with Kotlin,
+                        WebViews &amp; ☕</p>
+                    <a href="mailto:romario076@yahoo.com"
+                        style="color: var(--teal); text-decoration: none; font-size: 0.85rem; margin-top: 6px; display: inline-block;">romario076@yahoo.com</a>
+                    <br>
+                    <a href="https://www.linkedin.com/in/roman-melnyk-690689b8" target="_blank"
+                        style="display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 16px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 20px; color: #60a5fa; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: all 0.2s;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
+                        </svg>
+                        LinkedIn
+                    </a>
+                </div>
+            </section>
+
+            <!-- Stats View -->
+            <section id="stats-view" class="view">
+                <header class="stats-header">
+                    <h2>Statistics Dashboard</h2>
+                </header>
+
+                <!-- Unified width container for all stats sections -->
+                <div style="padding: 0 0.5rem 1rem;">
+
+                    <!-- COMPACT METRICS RIBBON -->
+                    <div class="glass-panel" style="margin-bottom: 0.5rem; padding: 10px 12px;">
+                        <!-- Row 1: Connections -->
+                        <div
+                            style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.07);">
+                            <div
+                                style="display: flex; align-items: center; gap: 8px; flex: 1; background: rgba(99,102,241,0.08); border-radius: 10px; padding: 8px 12px;">
+                                <span style="font-size: 1.4rem; line-height: 1;">🌍</span>
+                                <div>
+                                    <div
+                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase; letter-spacing: 0.5px;">
+                                        Total Connections</div>
+                                    <div id="total-connections-val"
+                                        style="font-size: 1.2rem; font-weight: 700; color: #818cf8; line-height: 1.2;">0
+                                    </div>
+                                </div>
+                            </div>
+                            <div
+                                style="display: flex; align-items: center; gap: 8px; flex: 1; background: rgba(20,184,166,0.08); border-radius: 10px; padding: 8px 12px;">
+                                <span style="font-size: 1.4rem; line-height: 1;">📍</span>
+                                <div>
+                                    <div
+                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase; letter-spacing: 0.5px;">
+                                        Unique Networks</div>
+                                    <div id="unique-connections-val"
+                                        style="font-size: 1.2rem; font-weight: 700; color: var(--teal); line-height: 1.2;">
+                                        0</div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Row 2: Altitude overview in one line -->
+                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <span
+                                style="font-size: 0.8rem; color: var(--slate-light); white-space: nowrap; width: 100%; margin-bottom: 4px;">🏔️
+                                Altitude Summary</span>
+                            <div style="display: flex; flex: 1; gap: 6px; width: 100%;">
+                                <div
+                                    style="flex:1; text-align:center; background:rgba(59,130,246,0.1); border-radius:8px; padding:5px 2px;">
+                                    <div style="font-size:0.6rem; color:var(--slate-light); text-transform:uppercase;">
+                                        Min</div>
+                                    <div id="alt-min-val"
+                                        style="font-size:0.95rem; font-weight:700; color:#3b82f6; white-space:nowrap;">
+                                        0m</div>
+                                </div>
+                                <div
+                                    style="flex:1; text-align:center; background:rgba(16,185,129,0.1); border-radius:8px; padding:5px 4px;">
+                                    <div style="font-size:0.65rem; color:var(--slate-light); text-transform:uppercase;">
+                                        Avg</div>
+                                    <div id="alt-avg-val"
+                                        style="font-size:1rem; font-weight:700; color:#10b981; white-space:nowrap;">0m
+                                    </div>
+                                </div>
+                                <div
+                                    style="flex:1; text-align:center; background:rgba(245,158,11,0.1); border-radius:8px; padding:5px 4px;">
+                                    <div style="font-size:0.65rem; color:var(--slate-light); text-transform:uppercase;">
+                                        Median</div>
+                                    <div id="alt-median-val"
+                                        style="font-size:1rem; font-weight:700; color:#f59e0b; white-space:nowrap;">0m
+                                    </div>
+                                </div>
+                                <div
+                                    style="flex:1; text-align:center; background:rgba(239,68,68,0.1); border-radius:8px; padding:5px 4px;">
+                                    <div style="font-size:0.65rem; color:var(--slate-light); text-transform:uppercase;">
+                                        Max</div>
+                                    <div id="alt-max-val"
+                                        style="font-size:1rem; font-weight:700; color:#ef4444; white-space:nowrap;">0m
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="charts-grid">
+                        <div class="chart-container glass-panel">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                                <h3 style="margin: 0;">Connections Trend</h3>
+                                <div class="chart-filters" id="trend-group-filters">
+                                    <button class="chart-filter-btn" data-group="day">Day</button>
+                                    <button class="chart-filter-btn" data-group="week">Week</button>
+                                    <button class="chart-filter-btn active" data-group="month">Month</button>
+                                </div>
+                            </div>
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                        <div class="chart-container glass-panel" style="grid-column: 1 / -1;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                                <h3 style="margin: 0;">Altitude Over Time</h3>
+                                <div class="chart-filters" id="alt-time-filters">
+                                    <button class="chart-filter-btn" data-range="1D">1D</button>
+                                    <button class="chart-filter-btn" data-range="1W">1W</button>
+                                    <button class="chart-filter-btn active" data-range="1M">1M</button>
+                                    <button class="chart-filter-btn" data-range="1Y">1Y</button>
+                                    <button class="chart-filter-btn" data-range="ALL">All Time</button>
+                                </div>
+                            </div>
+                            <canvas id="altitudeTimeChart" style="max-height: 250px;"></canvas>
+                        </div>
+                        <div class="chart-container glass-panel">
+                            <h3>Altitude Distribution</h3>
+                            <canvas id="altitudeHistogramChart"></canvas>
+                        </div>
+                        <div class="chart-container glass-panel">
+                            <h3>Top Locations (Unique Networks)</h3>
+                            <canvas id="placesChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- CONNECTION TIMELINE -->
+                    <div class="glass-panel" style="padding: 1rem 0; margin-bottom: 1rem;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; flex-wrap: wrap; gap: 10px;">
+                            <h3
+                                style="margin: 0; color: var(--teal); font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+                                <span>⏱️</span> Connection Timeline
+                            </h3>
+                            <div class="chart-filters" id="timeline-filters">
+                                <button class="chart-filter-btn" data-range="1D">1D</button>
+                                <button class="chart-filter-btn" data-range="1W">1W</button>
+                                <button class="chart-filter-btn active" data-range="1M">1M</button>
+                                <button class="chart-filter-btn" data-range="1Y">1Y</button>
+                                <button class="chart-filter-btn" data-range="ALL">All Time</button>
+                            </div>
+                        </div>
+                        <p style="font-size: 0.8rem; color: var(--slate-light); margin: 0.5rem 1rem 0;">Scroll right to
+                            view earlier connections. Click a point for details.</p>
+                        <div class="timeline-container" id="connection-timeline">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <!-- TABLES ROW -->
+                    <div
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px; margin-bottom: 1rem;">
+                        <!-- LAST LOCATIONS TABLE -->
+                        <div class="glass-panel"
+                            style="padding: 0.6rem 0.6rem 0.2rem; display: flex; flex-direction: column;">
+                            <div
+                                style="margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                <h3
+                                    style="margin: 0; color: var(--teal); font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+                                    <span>📋</span> Last Locations
+                                </h3>
+                                <select id="locations-count-select"
+                                    style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--slate-light); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; outline: none; cursor: pointer;">
+                                    <option value="10">10 records</option>
+                                    <option value="20">20 records</option>
+                                    <option value="50">50 records</option>
+                                </select>
+                            </div>
+                            <div style="overflow-y: auto; max-height: 250px; padding-right: 4px;">
+                                <table
+                                    style="width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 0.8rem;">
+                                    <colgroup>
+                                        <col style="width: 32%;">
+                                        <col style="width: 25%;">
+                                        <col style="width: 30%;">
+                                        <col style="width: 13%;">
+                                    </colgroup>
+                                    <thead style="position: sticky; top: 0; background: var(--glass-bg); z-index: 1;">
+                                        <tr
+                                            style="color: var(--slate-light); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            <th
+                                                style="padding: 4px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; font-weight: 600;">
+                                                Time</th>
+                                            <th
+                                                style="padding: 4px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; font-weight: 600;">
+                                                Location</th>
+                                            <th
+                                                style="padding: 4px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; font-weight: 600;">
+                                                SSID</th>
+                                            <th
+                                                style="padding: 4px 2px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: right; font-weight: 600;">
+                                                Alt</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-locations-tbody">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- LAST CONNECTIONS TABLE -->
+                        <div class="glass-panel"
+                            style="padding: 0.6rem 0.6rem 0.2rem; display: flex; flex-direction: column;">
+                            <div
+                                style="margin-bottom: 0.8rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                <h3
+                                    style="margin: 0; color: var(--teal); font-size: 1rem; display: flex; align-items: center; gap: 8px;">
+                                    <span>🔗</span> Last Connections
+                                </h3>
+                                <select id="connections-count-select"
+                                    style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--slate-light); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; outline: none; cursor: pointer;">
+                                    <option value="10">10 records</option>
+                                    <option value="20">20 records</option>
+                                    <option value="50">50 records</option>
+                                </select>
+                            </div>
+                            <div style="overflow-y: auto; max-height: 250px; padding-right: 4px;">
+                                <table
+                                    style="width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; color: var(--text-main); font-size: 0.8rem;">
+                                    <colgroup>
+                                        <col style="width: 32%;">
+                                        <col style="width: 25%;">
+                                        <col style="width: 30%;">
+                                        <col style="width: 13%;">
+                                    </colgroup>
+                                    <thead style="position: sticky; top: 0; background: var(--glass-bg); z-index: 1;">
+                                        <tr
+                                            style="color: var(--slate-light); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            <th
+                                                style="padding: 4px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; font-weight: 600;">
+                                                Time</th>
+                                            <th
+                                                style="padding: 4px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; font-weight: 600;">
+                                                Location</th>
+                                            <th
+                                                style="padding: 4px 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; font-weight: 600;">
+                                                SSID</th>
+                                            <th
+                                                style="padding: 4px 2px 6px; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: right; font-weight: 600;">
+                                                Alt</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-connections-tbody">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                </div><!-- /unified width container -->
+            </section>
+        </main>
+    </div>
+
+    <!-- Geo Modal -->
+    <div id="geo-modal" class="modal hidden">
+        <div class="modal-content glass-panel" style="max-width: 450px;">
+            <h3>Enable Geolocation</h3>
+            <p id="geo-modal-desc">To determine your location, you need to enable geolocation on your device or grant
+                permission in the browser.</p>
+            <div class="modal-actions" style="flex-direction: column; gap: 12px; margin-top: 20px;">
+                <div style="display: flex; gap: 10px; width: 100%;">
+                    <button type="button" class="btn secondary" id="geo-modal-cancel" style="flex:1;">Cancel</button>
+                    <button type="button" class="btn primary" id="geo-modal-retry" style="flex:1;">Try Again</button>
+                </div>
+                <button type="button" class="btn secondary" id="geo-modal-ip-fallback"
+                    style="width: 100%; border-color: rgba(245, 158, 11, 0.5); color: #fbbf24; background: rgba(245, 158, 11, 0.1);">Determine
+                    by IP (less accurate)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Registration Modal -->
+    <div id="registration-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3 id="reg-modal-title">New Network Detected</h3>
+            <p class="readonly-info" id="reg-location-info">Fetching coordinates...</p>
+            <form id="reg-form">
+                <div class="form-group">
+                    <label for="reg-wifi-name">Network Name (SSID):</label>
+                    <input type="text" id="reg-wifi-name" placeholder="e.g. Free_WiFi" required>
+                </div>
+                <div class="form-group">
+                    <label for="reg-wifi-altitude">Altitude (meters):</label>
+                    <input type="number" id="reg-wifi-altitude" placeholder="Fetching from GPS..." required>
+                </div>
+                <div class="form-group">
+                    <label>Marker Color:</label>
+                    <div class="color-picker" id="reg-color-picker">
+                        <div class="color-option active" data-color="#3b82f6" style="background: #3b82f6;"></div>
+                        <div class="color-option" data-color="#ef4444" style="background: #ef4444;"></div>
+                        <div class="color-option" data-color="#10b981" style="background: #10b981;"></div>
+                        <div class="color-option" data-color="#f59e0b" style="background: #f59e0b;"></div>
+                        <div class="color-option" data-color="#8b5cf6" style="background: #8b5cf6;"></div>
+                        <div class="color-option" data-color="#ec4899" style="background: #ec4899;"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="reg-wifi-note">Note:</label>
+                    <textarea id="reg-wifi-note" rows="2"
+                        placeholder="Add description, password, or other details (optional)"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn secondary" id="reg-modal-cancel">Cancel</button>
+                    <button type="submit" class="btn primary" id="reg-modal-save">Save &amp; Add</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="edit-modal" class="modal hidden">
+        <div class="modal-content glass-panel">
+            <h3 id="modal-title">Edit WiFi Network</h3>
+            <form id="edit-form">
+                <input type="hidden" id="edit-wifi-id">
+                <div class="form-group">
+                    <label for="edit-wifi-name">Network Name (SSID):</label>
+                    <input type="text" id="edit-wifi-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="edit-wifi-altitude">Altitude (meters):</label>
+                    <input type="number" id="edit-wifi-altitude" step="1" min="-500" max="9000">
+                </div>
+                <div class="form-group">
+                    <label>Marker Color:</label>
+                    <div class="color-picker" id="edit-color-picker">
+                        <div class="color-option active" data-color="#3b82f6" style="background: #3b82f6;"></div>
+                        <div class="color-option" data-color="#ef4444" style="background: #ef4444;"></div>
+                        <div class="color-option" data-color="#10b981" style="background: #10b981;"></div>
+                        <div class="color-option" data-color="#f59e0b" style="background: #f59e0b;"></div>
+                        <div class="color-option" data-color="#8b5cf6" style="background: #8b5cf6;"></div>
+                        <div class="color-option" data-color="#ec4899" style="background: #ec4899;"></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="edit-wifi-note">Note:</label>
+                    <textarea id="edit-wifi-note" rows="3"></textarea>
+                </div>
+                <p class="readonly-info" id="edit-location-info"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn danger" id="edit-modal-delete">Delete</button>
+                    <button type="button" class="btn secondary" id="edit-modal-cancel">Cancel</button>
+                    <button type="submit" class="btn primary" id="edit-modal-save">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p id="loading-text">Syncing with cloud…</p>
+    </div>
+
+    <!-- Custom Dialog Modal -->
+    <div id="dialog-modal" class="modal hidden" style="z-index: 9999;">
+        <div class="modal-content glass-panel" style="max-width: 320px; text-align: center; padding: 2rem 1.5rem;">
+            <h3 id="dialog-title" style="font-size: 1.25rem;">Notice</h3>
+            <p id="dialog-message"
+                style="margin-bottom: 1.5rem; color: var(--slate-light); font-size: 0.95rem; line-height: 1.4;"></p>
+            <div id="dialog-input-container" class="form-group hidden" style="text-align: left;">
+                <input type="text" id="dialog-input" class="form-control" autocomplete="off" style="font-size: 16px;">
+            </div>
+            <div class="modal-actions" style="justify-content: center; gap: 12px; margin-top: 1rem;">
+                <button type="button" class="btn secondary hidden" id="dialog-btn-cancel"
+                    style="flex: 1;">Cancel</button>
+                <button type="button" class="btn primary" id="dialog-btn-confirm" style="flex: 1;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
