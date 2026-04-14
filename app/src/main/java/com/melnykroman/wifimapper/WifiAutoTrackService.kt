@@ -204,7 +204,7 @@ class WifiAutoTrackService : Service() {
                     if (pt.optString("ssid") == ssid) {
                         val results = FloatArray(1)
                         Location.distanceBetween(lat, lng, pt.optDouble("lat", 0.0), pt.optDouble("lng", 0.0), results)
-                        if (results[0] <= 150f) { duplicate = pt; break }
+                        if (results[0] <= 400f) { duplicate = pt; break }
                     }
                 }
 
@@ -296,11 +296,16 @@ class WifiAutoTrackService : Service() {
                         }
                 } else {
                     val newId = db.collection("users").document(uid).collection("points").document().id
+                    
+                    val isPrivateFlag = getSharedPreferences("wifimapper_prefs", android.content.Context.MODE_PRIVATE)
+                                          .getBoolean("autotrack_private", false)
+
                     val data = mapOf(
                         "ssid"           to ssid, "lat" to lat, "lng" to lng,
                         "city"           to cityStr, "country" to countryStr, "altitude" to alt,
                         "note"           to "autotrack", "connections" to 1, "markerColor" to "#10b981",
-                        "dateAdded"      to System.currentTimeMillis(), "history" to emptyList<Any>(), "autoRegistered" to true
+                        "dateAdded"      to System.currentTimeMillis(), "history" to emptyList<Any>(), "autoRegistered" to true,
+                        "isPrivate"      to isPrivateFlag
                     )
                     getSharedPreferences("wifimapper_prefs", android.content.Context.MODE_PRIVATE)
                         .edit().putString("last_connected_ssid", ssid).apply()

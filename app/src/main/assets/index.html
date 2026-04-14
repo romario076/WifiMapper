@@ -102,6 +102,7 @@
                 <li class="active" data-target="map-view"><span class="icon">📍</span> <span class="nav-text">Live
                         Map</span></li>
                 <li data-target="stats-view"><span class="icon">📊</span> <span class="nav-text">Statistics</span></li>
+                <li data-target="friends-view"><span class="icon">👥</span> <span class="nav-text">Friends</span></li>
                 <li data-target="info-view"><span class="icon">ℹ️</span> <span class="nav-text">Info</span></li>
                 <li data-target="settings-view"><span class="icon">⚙️</span> <span class="nav-text">Settings</span></li>
             </ul>
@@ -112,6 +113,20 @@
             <!-- Map View -->
             <section id="map-view" class="view active">
                 <div id="map"></div>
+                <!-- Friend Filter Panel -->
+                <div id="friend-filter-panel"
+                    style="position: absolute; top: 16px; right: 16px; z-index: 1000; display:flex; flex-direction:column; gap:8px;">
+                </div>
+
+                <!-- Replay Overlay -->
+                <div id="replay-overlay" class="hidden"
+                    style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.8); border: 2px solid var(--teal); border-radius: 20px; padding: 10px 20px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    <div style="color: #fff; font-weight: bold; font-size: 0.9rem;" id="replay-status">Playing Route...
+                        (0/0)</div>
+                    <button id="stop-replay-btn"
+                        style="background: var(--danger, #ef4444); color: #fff; border: none; border-radius: 10px; padding: 5px 15px; cursor: pointer; font-weight: bold;">⏹
+                        Stop</button>
+                </div>
                 <!-- Action Bar -->
                 <div
                     style="position: absolute; bottom: max(32px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display:flex; gap: 12px; width: 90%; max-width: 400px; z-index: 1000; align-items: center; justify-content: space-between;">
@@ -119,9 +134,13 @@
                         style="position: static; transform: none; width: 48px; height: 48px; min-width: 48px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.3);"
                         title="Refresh Data">🔄</button>
 
+                    <button id="play-route-btn" class="glass-btn"
+                        style="position: static; transform: none; width: 48px; height: 48px; min-width: 48px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.3);"
+                        title="Route Replay">▶️</button>
+
                     <button id="register-btn" class="glass-btn"
-                        style="position: static; transform: none; flex: 1; width: auto; height: 48px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px;">Register
-                        network</button>
+                        style="position: static; transform: none; flex: 1; width: auto; height: 48px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; font-weight: 600;">📍
+                        Check-in</button>
 
                     <button id="my-location-btn" class="glass-btn"
                         style="position: static; transform: none; width: 48px; height: 48px; min-width: 48px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);"
@@ -241,6 +260,34 @@
                         <div class="form-group" style="margin-top: 1rem;">
                             <label
                                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                <span>🔒 Auto-Track as Private</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="auto-track-private-toggle">
+                                    <span class="slider round"></span>
+                                </label>
+                            </label>
+                            <p
+                                style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
+                                New points automatically found in the background will be marked as private (hidden from
+                                friends).</p>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                <span>👋 Welcome Notifications</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="welcome-notification-toggle" checked>
+                                    <span class="slider round"></span>
+                                </label>
+                            </label>
+                            <p
+                                style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
+                                Shows a friendly welcome message when you check-in to a previously saved Wi-Fi network.
+                            </p>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
                                 <span>Share My Map with Friends</span>
                                 <label class="switch">
                                     <input type="checkbox" id="public-map-toggle">
@@ -250,6 +297,19 @@
                             <p
                                 style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
                                 Allows other users to view your tracked locations on their Friends Map.</p>
+                        </div>
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                                <span>📡 Allow Check-ins via Mobile Data</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="allow-cellular-toggle" checked>
+                                    <span class="slider round"></span>
+                                </label>
+                            </label>
+                            <p
+                                style="font-size: 0.85rem; color: var(--slate-light); margin-top: 8px; font-weight: 400;">
+                                If disabled, you will only be able to Check-in when connected to a Wi-Fi network.</p>
                         </div>
                         <div class="form-group" style="margin-top: 2rem;">
                             <label>Data Management:</label>
@@ -264,6 +324,39 @@
                                 Saved Networks</button>
                         </div>
                     </form>
+                </div>
+            </section>
+
+            <!-- Friends View -->
+            <section id="friends-view" class="view">
+                <header class="stats-header">
+                    <h2 style="padding: 2rem 2rem 0;">Friends</h2>
+                </header>
+                <div class="glass-panel" style="max-width: 600px; margin: 0 2rem 2rem;">
+                    <div style="margin-bottom: 1.5rem;">
+                        <label>Add Friend (by Email):</label>
+                        <div style="display: flex; gap: 8px;">
+                            <input type="email" id="friend-search-input" class="form-control"
+                                placeholder="friend@gmail.com" style="flex:1;">
+                            <button class="btn primary" id="friend-search-btn">Send Request</button>
+                        </div>
+                    </div>
+
+                    <div id="friend-requests-container" class="hidden"
+                        style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <h3 style="font-size: 1rem; color: var(--teal); margin-bottom: 10px;">Friend Requests</h3>
+                        <div id="friend-requests-list" style="display:flex; flex-direction:column; gap:10px;">
+                            <!-- Populated dynamic -->
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 style="font-size: 1rem; color: var(--teal); margin-bottom: 10px;">My Friends</h3>
+                        <div id="friends-list" style="display:flex; flex-direction:column; gap:10px;">
+                            <p style="color:var(--slate-light); font-size:0.9rem;">Adding friends will allow you to
+                                share network points. Search their Google login email above to send a request.</p>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -456,6 +549,22 @@
                                         0</div>
                                 </div>
                             </div>
+                            <div
+                                style="display: flex; align-items: center; gap: 8px; flex: 100%; background: rgba(234,179,8,0.08); border-radius: 10px; padding: 8px 12px;">
+                                <span style="font-size: 1.6rem; line-height: 1;">🚀</span>
+                                <div style="flex: 1;">
+                                    <div
+                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase; letter-spacing: 0.5px;">
+                                        Furthest Discovery</div>
+                                    <div id="furthest-point-val"
+                                        style="font-size: 1.1rem; font-weight: 700; color: #eab308; line-height: 1.2;">
+                                        No Home Set</div>
+                                    <div id="furthest-point-desc"
+                                        style="font-size: 0.75rem; color: var(--slate-light); margin-top:2px;">
+                                        Tap any of your pins on the map to "Set as Home"
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <!-- Row 2: Altitude overview in one line -->
                         <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
@@ -516,6 +625,19 @@
                         <div class="chart-container glass-panel" style="grid-column: 1 / -1;">
                             <div
                                 style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                                <h3 style="margin: 0;">Time Activity Heatmap</h3>
+                                <div class="chart-filters" id="heatmap-filters">
+                                    <button class="chart-filter-btn" data-range="1W">1W</button>
+                                    <button class="chart-filter-btn" data-range="1M">1M</button>
+                                    <button class="chart-filter-btn" data-range="1Y">1Y</button>
+                                    <button class="chart-filter-btn active" data-range="ALL">All Time</button>
+                                </div>
+                            </div>
+                            <div id="activityHeatmap" class="heatmap-grid-container"></div>
+                        </div>
+                        <div class="chart-container glass-panel" style="grid-column: 1 / -1;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
                                 <h3 style="margin: 0;">Altitude Over Time</h3>
                                 <div class="chart-filters" id="alt-time-filters">
                                     <button class="chart-filter-btn" data-range="1D">1D</button>
@@ -532,8 +654,46 @@
                             <canvas id="altitudeHistogramChart"></canvas>
                         </div>
                         <div class="chart-container glass-panel">
-                            <h3>Top Locations (Unique Networks)</h3>
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px;">
+                                <h3 style="margin: 0;">Wi-Fi vs Mobile Network</h3>
+                                <div class="chart-filters" id="network-pie-filters">
+                                    <button class="chart-filter-btn" data-range="1W">1W</button>
+                                    <button class="chart-filter-btn" data-range="1M">1M</button>
+                                    <button class="chart-filter-btn" data-range="1Y">1Y</button>
+                                    <button class="chart-filter-btn active" data-range="ALL">All Time</button>
+                                </div>
+                            </div>
+                            <div
+                                style="position: relative; height: 250px; width: 100%; display: flex; justify-content: center;">
+                                <canvas id="networkPieChart"></canvas>
+                            </div>
+                        </div>
+                        <div class="chart-container glass-panel">
+                            <div
+                                style="margin-bottom: 0.8rem; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; font-size: 1rem;">Top Locations</h3>
+                                <select id="top-locations-count" class="inline-select">
+                                    <option value="5">5 places</option>
+                                    <option value="10">10 places</option>
+                                    <option value="15">15 places</option>
+                                    <option value="20">20 places</option>
+                                </select>
+                            </div>
                             <canvas id="placesChart"></canvas>
+                        </div>
+                        <div class="chart-container glass-panel">
+                            <div
+                                style="margin-bottom: 0.8rem; padding-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; font-size: 1rem;">Top Countries</h3>
+                                <select id="top-countries-count" class="inline-select">
+                                    <option value="5">5 countries</option>
+                                    <option value="10">10 countries</option>
+                                    <option value="15">15 countries</option>
+                                    <option value="20">20 countries</option>
+                                </select>
+                            </div>
+                            <canvas id="countriesChart"></canvas>
                         </div>
                     </div>
 
@@ -572,8 +732,7 @@
                                     style="margin: 0; color: var(--teal); font-size: 1rem; display: flex; align-items: center; gap: 8px;">
                                     <span>📋</span> Last Locations
                                 </h3>
-                                <select id="locations-count-select"
-                                    style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--slate-light); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; outline: none; cursor: pointer;">
+                                <select id="locations-count-select" class="inline-select">
                                     <option value="10">10 records</option>
                                     <option value="20">20 records</option>
                                     <option value="50">50 records</option>
@@ -621,8 +780,7 @@
                                     style="margin: 0; color: var(--teal); font-size: 1rem; display: flex; align-items: center; gap: 8px;">
                                     <span>🔗</span> Last Connections
                                 </h3>
-                                <select id="connections-count-select"
-                                    style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); color: var(--slate-light); border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; outline: none; cursor: pointer;">
+                                <select id="connections-count-select" class="inline-select">
                                     <option value="10">10 records</option>
                                     <option value="20">20 records</option>
                                     <option value="50">50 records</option>
@@ -715,6 +873,17 @@
                     <textarea id="reg-wifi-note" rows="2"
                         placeholder="Add description, password, or other details (optional)"></textarea>
                 </div>
+                <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
+                    <label
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                        <span style="font-weight: 500; display:flex; align-items:center; gap:6px;">🔒 Keep this node
+                            private</span>
+                        <label class="switch">
+                            <input type="checkbox" id="reg-wifi-private">
+                            <span class="slider round"></span>
+                        </label>
+                    </label>
+                </div>
                 <div class="modal-actions">
                     <button type="button" class="btn secondary" id="reg-modal-cancel">Cancel</button>
                     <button type="submit" class="btn primary" id="reg-modal-save">Save &amp; Add</button>
@@ -752,7 +921,28 @@
                     <label for="edit-wifi-note">Note:</label>
                     <textarea id="edit-wifi-note" rows="3"></textarea>
                 </div>
-                <p class="readonly-info" id="edit-location-info"></p>
+                <div class="form-group" style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
+                    <label
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0;">
+                        <span style="font-weight: 500; display:flex; align-items:center; gap:6px;">🔒 Keep this node
+                            private</span>
+                        <label class="switch">
+                            <input type="checkbox" id="edit-wifi-private">
+                            <span class="slider round"></span>
+                        </label>
+                    </label>
+                </div>
+                <div class="form-group" style="display:flex; gap:12px; margin-bottom: 0;">
+                    <div style="flex:1;">
+                        <label for="edit-wifi-city">City:</label>
+                        <input type="text" id="edit-wifi-city">
+                    </div>
+                    <div style="flex:1;">
+                        <label for="edit-wifi-country">Country:</label>
+                        <input type="text" id="edit-wifi-country">
+                    </div>
+                </div>
+                <p class="readonly-info" id="edit-connections-info" style="margin-top: 12px;"></p>
                 <div class="modal-actions">
                     <button type="button" class="btn danger" id="edit-modal-delete">Delete</button>
                     <button type="button" class="btn secondary" id="edit-modal-cancel">Cancel</button>

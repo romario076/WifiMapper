@@ -22,6 +22,7 @@ import com.google.android.gms.common.api.ApiException
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.firestore.FirebaseFirestore
 import java.io.OutputStreamWriter
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -109,6 +110,18 @@ class MainActivity : AppCompatActivity() {
         val currentUser = auth.currentUser
         if (currentUser != null) {
             initWebAppInterface()
+            
+            // Auto-sync user data to Firestore on app launch for existing users
+            val db = FirebaseFirestore.getInstance()
+            val userMap = hashMapOf(
+                "uid" to currentUser.uid,
+                "email" to (currentUser.email?.lowercase() ?: ""),
+                "displayName" to (currentUser.displayName ?: ""),
+                "photoUrl" to (currentUser.photoUrl?.toString() ?: "")
+            )
+            db.collection("Users").document(currentUser.uid)
+                .set(userMap, com.google.firebase.firestore.SetOptions.merge())
+
             webView.loadUrl("file:///android_asset/index.html")
 
             // Automatically start background service if enabled from a previous session
@@ -211,6 +224,16 @@ class MainActivity : AppCompatActivity() {
                     val user = auth.currentUser!!
                     // Log login event to Analytics
                     analytics.logEvent(FirebaseAnalytics.Event.LOGIN, null)
+
+                    val db = FirebaseFirestore.getInstance()
+                    val userMap = hashMapOf(
+                        "uid" to user.uid,
+                        "email" to (user.email ?: ""),
+                        "displayName" to (user.displayName ?: ""),
+                        "photoUrl" to (user.photoUrl?.toString() ?: "")
+                    )
+                    db.collection("Users").document(user.uid)
+                        .set(userMap, com.google.firebase.firestore.SetOptions.merge())
 
                     // Start background service if enabled
                     val prefs = getSharedPreferences("wifimapper_prefs", Context.MODE_PRIVATE)

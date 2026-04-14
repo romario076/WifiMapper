@@ -7,6 +7,7 @@ import android.webkit.WebView
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import org.json.JSONArray
@@ -108,6 +109,7 @@ class WebAppInterface(
             val id = obj.optString("id").ifEmpty { db.collection("_").document().id }
             val data = jsonToMap(obj).toMutableMap()
             data.remove("id")
+            data["ownerId"] = uid
 
             db.collection("users").document(uid)
                 .collection("points").document(id)
@@ -226,6 +228,217 @@ class WebAppInterface(
             }
     }
 
+    // ── Friends System ─────────────────────────────────────────────────────
+
+    @JavascriptInterface
+    fun sendFriendRequest(rawEmail: String) {
+        val myUid = auth.currentUser?.uid ?: return
+        val emailToSearch = rawEmail.trim().lowercase()
+        
+        db.collection("Users").get()
+            .addOnSuccessListener { allDocs ->
+                
+                if (emailToSearch == "debug@admin.com") {
+                    val emails = allDocs.documents.mapNotNull { it.getString("email") }.joinToString(",\\n")
+                    activity.runOnUiThread { webView.evaluateJavascript("customAlert('Emails in DB:\\n$emails')", null) }
+                    return@addOnSuccessListener
+                }
+
+                // Manual case-insensitive search
+                val targetDoc = allDocs.documents.firstOrNull { 
+                    it.getString("email")?.trim()?.lowercase() == emailToSearch 
+                }
+                
+                if (targetDoc == null) {
+                    activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('User with this email not found')", null) }
+                    return@addOnSuccessListener
+                }
+                
+                val targetUid = targetDoc.id
+                
+                if (targetUid == myUid) {
+                    activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('Cannot add yourself')", null) }
+                    return@addOnSuccessListener
+                }
+                
+                val friends = (targetDoc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                val requests = (targetDoc.get("friendRequests") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                
+                if (friends.contains(myUid)) {
+                    activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('You are already friends with this user')", null) }
+                    return@addOnSuccessListener
+                }
+                
+                if (requests.contains(myUid)) {
+                    activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('Friend request already sent/pending')", null) }
+                    return@addOnSuccessListener
+                }
+                
+                db.collection("Users").document(targetUid)
+                    .set(hashMapOf("friendRequests" to FieldValue.arrayUnion(myUid)), SetOptions.merge())
+                    .addOnSuccessListener {
+                        activity.runOnUiThread { webView.evaluateJavascript("onFriendActionSuccess('request_sent')", null) }
+                    }
+                    .addOnFailureListener { e ->
+                        activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('DB Error: ${e.message}')", null) }
+                    }
+            }
+            .addOnFailureListener { e ->
+                activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('Failed to query users: ${e.message}')", null) }
+            }
+    }
+
+    @JavascriptInterface
+    fun acceptFriendRequest(friendUid: String) {
+        val myUid = auth.currentUser?.uid ?: return
+        val myRef = db.collection("Users").document(myUid)
+        val friendRef = db.collection("Users").document(friendUid)
+        
+        db.runTransaction { tx ->
+            tx.update(myRef, "friendRequests", FieldValue.arrayRemove(friendUid))
+            tx.set(myRef, hashMapOf("friends" to FieldValue.arrayUnion(friendUid)), SetOptions.merge())
+            tx.set(friendRef, hashMapOf("friends" to FieldValue.arrayUnion(myUid)), SetOptions.merge())
+            null
+        }.addOnSuccessListener {
+            activity.runOnUiThread { webView.evaluateJavascript("onFriendActionSuccess('request_accepted')", null) }
+        }
+    }
+
+    @JavascriptInterface
+    fun rejectFriendRequest(friendUid: String) {
+        val myUid = auth.currentUser?.uid ?: return
+        db.collection("Users").document(myUid)
+            .update("friendRequests", FieldValue.arrayRemove(friendUid))
+            .addOnSuccessListener {
+                activity.runOnUiThread { webView.evaluateJavascript("onFriendActionSuccess('request_rejected')", null) }
+            }
+    }
+
+    @JavascriptInterface
+    fun removeFriend(friendUid: String) {
+        val myUid = auth.currentUser?.uid ?: return
+        val myRef = db.collection("Users").document(myUid)
+        val friendRef = db.collection("Users").document(friendUid)
+        
+        db.runTransaction { tx ->
+            tx.update(myRef, "friends", FieldValue.arrayRemove(friendUid))
+            tx.update(friendRef, "friends", FieldValue.arrayRemove(myUid))
+            null
+        }.addOnSuccessListener {
+            activity.runOnUiThread { webView.evaluateJavascript("onFriendActionSuccess('friend_removed')", null) }
+        }.addOnFailureListener { e ->
+            activity.runOnUiThread { webView.evaluateJavascript("onFriendActionError('Failed to remove friend: ${e.message}')", null) }
+        }
+    }
+
+    @JavascriptInterface
+    fun updateActivity() {
+        val myUid = auth.currentUser?.uid ?: return
+        db.collection("Users").document(myUid)
+            .set(hashMapOf("lastActive" to System.currentTimeMillis()), SetOptions.merge())
+    }
+
+    @JavascriptInterface
+    fun fetchFriendData() {
+        val myUid = auth.currentUser?.uid ?: return
+        db.collection("Users").document(myUid).get()
+            .addOnSuccessListener { doc ->
+                // Ensure safe unchecked cast logic
+                val requests = (doc.get("friendRequests") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                val friends = (doc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                
+                val allUids = (requests + friends).distinct().take(10)
+                if (allUids.isEmpty()) {
+                    pushFriendDataToJS(requests, friends, emptyList())
+                    return@addOnSuccessListener
+                }
+                
+                db.collection("Users").whereIn(com.google.firebase.firestore.FieldPath.documentId(), allUids).get()
+                    .addOnSuccessListener { snapshot ->
+                        pushFriendDataToJS(requests, friends, snapshot.documents)
+                    }
+            }
+    }
+    
+    private fun pushFriendDataToJS(requests: List<String>, friends: List<String>, userDocs: List<com.google.firebase.firestore.DocumentSnapshot>) {
+        val usersJson = JSONObject()
+        for (doc in userDocs) {
+            val uid = doc.id
+            val obj = JSONObject().apply {
+                put("email", doc.getString("email") ?: "")
+                put("displayName", doc.getString("displayName") ?: "")
+                put("photoUrl", doc.getString("photoUrl") ?: "")
+                put("lastActive", doc.getLong("lastActive") ?: 0L)
+            }
+            usersJson.put(uid, obj)
+        }
+        
+        val payload = JSONObject().apply {
+            put("requests", JSONArray(requests))
+            put("friends", JSONArray(friends))
+            put("profiles", usersJson)
+        }
+        
+        val b64 = android.util.Base64.encodeToString(
+            payload.toString().toByteArray(Charsets.UTF_8),
+            android.util.Base64.NO_WRAP
+        )
+        activity.runOnUiThread {
+            webView.evaluateJavascript("onFriendDataReceived(decodeURIComponent(escape(atob('$b64'))))", null)
+        }
+    }
+
+    @JavascriptInterface
+    fun fetchAllFriendPoints() {
+        val myUid = auth.currentUser?.uid ?: return
+        db.collection("Users").document(myUid).get()
+            .addOnSuccessListener { doc ->
+                val friends = (doc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                if (friends.isEmpty()) {
+                    activity.runOnUiThread { webView.evaluateJavascript("onFriendPointsLoaded('[]')", null) }
+                    return@addOnSuccessListener
+                }
+                
+                val allPoints = JSONArray()
+                var pending = friends.size
+                
+                for (friendId in friends) {
+                    db.collection("users").document(friendId).collection("points")
+                        .get()
+                        .addOnSuccessListener { snapshot ->
+                            for (pDoc in snapshot.documents) {
+                                val isPrivate = pDoc.getBoolean("isPrivate") ?: false
+                                if (isPrivate) continue
+                                
+                                val data = pDoc.data ?: continue
+                                val pt = org.json.JSONObject(data).apply {
+                                    put("id", pDoc.id)
+                                    put("isFriendPoint", true)
+                                    put("ownerId", friendId)
+                                }
+                                allPoints.put(pt)
+                            }
+                            pending--
+                            if (pending == 0) sendPointsToJS(allPoints)
+                        }
+                        .addOnFailureListener {
+                            pending--
+                            if (pending == 0) sendPointsToJS(allPoints)
+                        }
+                }
+            }
+    }
+    
+    private fun sendPointsToJS(arr: JSONArray) {
+        val b64 = android.util.Base64.encodeToString(
+             arr.toString().toByteArray(Charsets.UTF_8),
+             android.util.Base64.NO_WRAP
+        )
+        activity.runOnUiThread {
+             webView.evaluateJavascript("onFriendPointsLoaded(decodeURIComponent(escape(atob('$b64'))))", null)
+        }
+    }
+
     // ── Auto WiFi Tracking ─────────────────────────────────────────────────
 
     @JavascriptInterface
@@ -275,5 +488,17 @@ class WebAppInterface(
     fun isSilentTrackEnabled(): Boolean {
         val prefs = activity.getSharedPreferences("wifimapper_prefs", android.content.Context.MODE_PRIVATE)
         return prefs.getBoolean("silent_track_enabled", false)
+    }
+
+    @JavascriptInterface
+    fun setAutoTrackPrivate(enabled: Boolean) {
+        val prefs = activity.getSharedPreferences("wifimapper_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("autotrack_private", enabled).apply()
+    }
+
+    @JavascriptInterface
+    fun isAutoTrackPrivate(): Boolean {
+        val prefs = activity.getSharedPreferences("wifimapper_prefs", android.content.Context.MODE_PRIVATE)
+        return prefs.getBoolean("autotrack_private", false)
     }
 }

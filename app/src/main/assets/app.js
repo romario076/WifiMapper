@@ -26,9 +26,9 @@ const mapThemes = {
 // ═══════════════════════════════════════════════════════════
 //  Helpers & Custom Dialogs
 // ═══════════════════════════════════════════════════════════
-function customAlert(message) {
+function customAlert(message, title = 'Notice') {
     return new Promise(resolve => {
-        document.getElementById('dialog-title').innerText = 'Notice';
+        document.getElementById('dialog-title').innerText = title;
         document.getElementById('dialog-message').innerText = message;
         document.getElementById('dialog-input-container').classList.add('hidden');
         document.getElementById('dialog-btn-cancel').classList.add('hidden');
@@ -110,6 +110,10 @@ window.onSignedIn = function (uid, name, email, photo) {
     showLoading('Loading your map…');
     if (window.Android && window.Android.loadPoints) {
         window.Android.loadPoints();
+        if (window.Android.fetchFriendData) {
+            window.Android.fetchFriendData();
+            if (window.Android.fetchAllFriendPoints) window.Android.fetchAllFriendPoints();
+        }
     }
 };
 
@@ -164,6 +168,213 @@ window.onPointSaved = function (firestoreId) {
     if (window._pendingSaveId && wifiPoints.find(p => p.id === window._pendingSaveId)) {
         wifiPoints.find(p => p.id === window._pendingSaveId).id = firestoreId;
         window._pendingSaveId = null;
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+//  Friend System
+// ═══════════════════════════════════════════════════════════
+
+window.onFriendActionSuccess = async function (action) {
+    if (action === 'request_sent') await customAlert("Friend request sent!");
+    else if (action === 'friend_removed') await customAlert("Friend removed successfully!");
+
+    if (window.Android && window.Android.fetchFriendData) {
+        window.Android.fetchFriendData();
+        if (action === 'friend_removed' && window.Android.fetchAllFriendPoints) {
+            window.Android.fetchAllFriendPoints(); // Sync map data after removal
+        }
+    }
+};
+
+window.onFriendActionError = function (errorMsg) {
+    customAlert(errorMsg);
+};
+
+window.showFriendStats = async function (uid) {
+    if (!window.friendWifiPoints) return;
+    const profile = window.lastFriendProfiles[uid] || { displayName: 'Friend', email: '', photoUrl: '' };
+    const pts = window.friendWifiPoints.filter(p => String(p.ownerId) === String(uid));
+
+    let totalConnections = 0;
+    const ssidCounts = {};
+
+    pts.forEach(p => {
+        totalConnections += (Number(p.connections) || 1);
+        if (p.ssid) ssidCounts[p.ssid] = (ssidCounts[p.ssid] || 0) + 1;
+    });
+
+    let topSsid = 'N/A';
+    let maxSsid = 0;
+    for (const [s, count] of Object.entries(ssidCounts)) {
+        if (count > maxSsid) {
+            maxSsid = count;
+            topSsid = s;
+        }
+    }
+
+    await customAlert(`
+        <div style="text-align:center; padding:10px;">
+            ${profile.photoUrl ? `<img src="${profile.photoUrl}" style="width:64px; height:64px; border-radius:50%; margin-bottom:10px; border:2px solid var(--teal);">` : '<span style="font-size:40px;">👤</span>'}
+            <h3 style="color:var(--teal); margin:0;">${profile.displayName}</h3>
+            <p style="color:var(--slate-light); font-size:0.85rem; margin:5px 0 20px 0;">${profile.email}</p>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:left;">
+                <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
+                    <div style="font-size:0.75rem; color:var(--teal);">Public Points</div>
+                    <b style="font-size:1.3rem; color:var(--text-color);">${pts.length}</b>
+                </div>
+                <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
+                    <div style="font-size:0.75rem; color:var(--teal);">Total Connections</div>
+                    <b style="font-size:1.3rem; color:var(--text-color);">${totalConnections}</b>
+                </div>
+            </div>
+            
+            <div style="background:rgba(255,255,255,0.05); padding:12px; border-radius:8px; text-align:left; margin-top:10px;">
+                <div style="font-size:0.75rem; color:var(--teal);">Most Frequent Network</div>
+                <b style="font-size:1.1rem; color:var(--text-color);">${topSsid}</b>
+            </div>
+        </div>
+    `);
+};
+
+window.lastFriendProfiles = {};
+window.activeFriendFilters = new Set();
+window._hideMyPoints = false;
+
+window.onFriendDataReceived = function (jsonStr) {
+    try {
+        const data = JSON.parse(jsonStr);
+        window.lastFriendProfiles = data.profiles || {};
+
+        const filterPanel = document.getElementById('friend-filter-panel');
+        if (filterPanel) {
+            filterPanel.innerHTML = '';
+            const meBtn = document.createElement('div');
+            meBtn.style.cssText = `width:40px; height:40px; border-radius:50%; background:var(--bg-panel); display:flex; align-items:center; justify-content:center; font-size:20px; border:2px solid var(--primary); cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.3); transition: transform 0.2s; opacity: ${window._hideMyPoints ? '0.4' : '1'};`;
+            meBtn.title = "Show/Hide My Points";
+            meBtn.innerHTML = "📍";
+            meBtn.onclick = () => {
+                window._hideMyPoints = !window._hideMyPoints;
+                meBtn.style.opacity = window._hideMyPoints ? '0.4' : '1';
+                meBtn.style.border = window._hideMyPoints ? '2px solid transparent' : '2px solid var(--primary)';
+                renderMarkers();
+                if (typeof updateCharts === 'function') updateCharts();
+            };
+            filterPanel.appendChild(meBtn);
+
+            if (data.friends && data.friends.length > 0) {
+                data.friends.forEach(uid => {
+                    const profile = data.profiles[uid] || { displayName: 'Unknown', photoUrl: '' };
+                    const imgStr = profile.photoUrl ? profile.photoUrl : 'https://ui-avatars.com/api/?name=' + encodeURIComponent(profile.displayName);
+                    const btn = document.createElement('div');
+                    // Friends should default to unselected (opacity 0.4) so we do NOT add them to activeFriendFilters automatically.
+                    // if (!window.activeFriendFilters.has(uid)) window.activeFriendFilters.add(uid);
+
+                    btn.style.cssText = `width:40px; height:40px; border-radius:50%; background:url('${imgStr}') center/cover; border:2px solid var(--teal); cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.3); transition: transform 0.2s; opacity: ${window.activeFriendFilters.has(uid) ? '1' : '0.4'};`;
+                    btn.title = profile.displayName;
+
+                    const uidStr = String(uid);
+                    btn.onclick = () => {
+                        if (window.activeFriendFilters.has(uidStr)) {
+                            window.activeFriendFilters.delete(uidStr);
+                            btn.style.opacity = '0.4';
+                            btn.style.border = '2px solid transparent';
+                        } else {
+                            window.activeFriendFilters.add(uidStr);
+                            btn.style.opacity = '1';
+                            btn.style.border = '2px solid var(--teal)';
+                        }
+                        renderMarkers();
+                        if (typeof updateCharts === 'function') updateCharts();
+                    };
+                    filterPanel.appendChild(btn);
+                });
+            }
+        }
+
+        const reqList = document.getElementById('friend-requests-list');
+        const fList = document.getElementById('friends-list');
+        const reqContainer = document.getElementById('friend-requests-container');
+        if (!reqList || !fList) return;
+
+        reqList.innerHTML = '';
+        fList.innerHTML = '';
+
+        if (data.requests && data.requests.length > 0) {
+            reqContainer.classList.remove('hidden');
+            data.requests.forEach(uid => {
+                const profile = data.profiles[uid] || { displayName: 'Unknown', photoUrl: '', email: '' };
+                const imgStr = profile.photoUrl ? `<img src="${profile.photoUrl}" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">` : '<span style="font-size:24px;">👤</span>';
+                reqList.innerHTML += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            ${imgStr}
+                            <div>
+                                <div style="font-weight:600; font-size:0.9rem;">${profile.displayName}</div>
+                                <div style="font-size:0.75rem; color:var(--slate-light);">${profile.email}</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:6px;">
+                            <button onclick="if(window.Android) window.Android.acceptFriendRequest('${uid}')" style="background:var(--success); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Accept">✓</button>
+                            <button onclick="if(window.Android) window.Android.rejectFriendRequest('${uid}')" style="background:var(--danger); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Reject">✕</button>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            reqContainer.classList.add('hidden');
+        }
+
+        if (data.friends && data.friends.length > 0) {
+            data.friends.forEach(uid => {
+                const profile = data.profiles[uid] || { displayName: 'Unknown', photoUrl: '', email: '', lastActive: 0 };
+                const isOnline = Date.now() - (profile.lastActive || 0) < 5 * 60 * 1000;
+                const dotColor = isOnline ? '#10b981' : '#64748b';
+
+                const imgStr = profile.photoUrl ? `<img src="${profile.photoUrl}" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">` : '<span style="font-size:24px;">👤</span>';
+                fList.innerHTML += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
+                            <div style="position:relative;">
+                                ${imgStr}
+                                <div style="position:absolute; bottom:0; right:-2px; width:12px; height:12px; background:${dotColor}; border:2px solid var(--glass-bg, #0f172a); border-radius:50%;"></div>
+                            </div>
+                            <div>
+                                <div style="font-weight:600; font-size:0.9rem;">${profile.displayName}</div>
+                                <div style="font-size:0.75rem; color:var(--slate-light);">${profile.email}</div>
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button onclick="window.showFriendStats('${uid}')" style="background:var(--teal); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="View Stats">📊</button>
+                            <button onclick="if(confirm('Are you sure you want to remove this friend? Their points will no longer be visible on your map.')) { if(window.Android) window.Android.removeFriend('${uid}') }" style="background:var(--danger, #ef4444); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Remove Friend">╳</button>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            fList.innerHTML = '<p style="color:var(--slate-light); font-size:0.9rem;">Adding friends will allow you to share network points. Search their Google login email above to send a request.</p>';
+        }
+
+    } catch (e) {
+        console.error("Error parsing friend data", e);
+    }
+};
+
+window.friendWifiPoints = [];
+window.onFriendPointsLoaded = function (jsonStr) {
+    try {
+        const arr = JSON.parse(jsonStr);
+        window.friendWifiPoints = arr.map(p => ({
+            ...p,
+            dateAdded: Number(p.dateAdded) || Date.now(),
+            connections: Number(p.connections) || 1,
+            history: Array.isArray(p.history) ? p.history : []
+        }));
+        renderMarkers();
+        if (typeof updateCharts === 'function') updateCharts();
+    } catch (e) {
+        console.error("Error parsing friend points:", e);
     }
 };
 
@@ -319,6 +530,26 @@ function initSettings() {
     const silentTrackToggle = document.getElementById('silent-track-toggle');
     if (silentTrackToggle) {
         silentTrackToggle.checked = localStorage.getItem('silentTrackEnabled') === 'true';
+    }
+
+    const autoTrackPrivateToggle = document.getElementById('auto-track-private-toggle');
+    if (autoTrackPrivateToggle) {
+        const isPrivate = window.Android && window.Android.isAutoTrackPrivate
+            ? window.Android.isAutoTrackPrivate()
+            : localStorage.getItem('autoTrackPrivate') === 'true';
+        autoTrackPrivateToggle.checked = isPrivate;
+    }
+
+    const welcomeToggle = document.getElementById('welcome-notification-toggle');
+    if (welcomeToggle) {
+        const val = localStorage.getItem('welcomeNotificationEnabled');
+        welcomeToggle.checked = val === null ? true : val === 'true';
+    }
+
+    const allowCellularToggle = document.getElementById('allow-cellular-toggle');
+    if (allowCellularToggle) {
+        const val = localStorage.getItem('allowCellularCheckin');
+        allowCellularToggle.checked = val === null ? true : val === 'true';
     }
 
     const cooldownSelect = document.getElementById('auto-track-cooldown-select');
@@ -486,6 +717,46 @@ function setupEventListeners() {
         });
     }
 
+    const autoTrackPrivateToggle = document.getElementById('auto-track-private-toggle');
+    if (autoTrackPrivateToggle) {
+        autoTrackPrivateToggle.addEventListener('change', e => {
+            const enabled = e.target.checked;
+            localStorage.setItem('autoTrackPrivate', enabled);
+            if (window.Android && window.Android.setAutoTrackPrivate) {
+                window.Android.setAutoTrackPrivate(enabled);
+            }
+        });
+    }
+
+    const welcomeToggle = document.getElementById('welcome-notification-toggle');
+    if (welcomeToggle) {
+        welcomeToggle.addEventListener('change', e => {
+            localStorage.setItem('welcomeNotificationEnabled', e.target.checked);
+        });
+    }
+
+    const allowCellularToggle = document.getElementById('allow-cellular-toggle');
+    if (allowCellularToggle) {
+        allowCellularToggle.addEventListener('change', e => {
+            localStorage.setItem('allowCellularCheckin', e.target.checked);
+        });
+    }
+
+    const friendSearchBtn = document.getElementById('friend-search-btn');
+    if (friendSearchBtn) {
+        friendSearchBtn.addEventListener('click', () => {
+            const email = document.getElementById('friend-search-input').value.trim();
+            if (email) {
+                if (window.Android && window.Android.sendFriendRequest) {
+                    window.Android.sendFriendRequest(email);
+                    document.getElementById('friend-search-input').value = '';
+                } else {
+                    customAlert("Friend requests require the Android app!");
+                }
+            }
+        });
+    }
+
     document.getElementById('clear-data-btn').addEventListener('click', async () => {
         if (await customConfirm('Delete ALL saved networks permanently?')) {
             wifiPoints = [];
@@ -532,7 +803,38 @@ function setupEventListeners() {
     // ── Register button ───────────────────────────────────────────────────
     const regBtn = document.getElementById('register-btn');
     regBtn.addEventListener('click', async () => {
-        if (!navigator.geolocation) { await customAlert('Geolocation not supported'); return; }
+        const unifiedErrorMsg = 'No connection to Wi-Fi, mobile data, or geolocation is disabled.';
+
+        if (!navigator.geolocation) {
+            await customAlert(unifiedErrorMsg);
+            return;
+        }
+
+        const allowCellularToggle = document.getElementById('allow-cellular-toggle');
+        const allowCellular = allowCellularToggle ? allowCellularToggle.checked : true;
+        let isWifi = false;
+        let isCellular = false;
+        let s = '';
+        const isAndroid = /Android/i.test(navigator.userAgent);
+
+        if (navigator.onLine) {
+            if (isAndroid && window.Android && window.Android.getSSID) {
+                s = window.Android.getSSID();
+                if (!s || s.includes('<unknown ssid>') || s === '0x' || s.trim() === '') {
+                    isCellular = true;
+                } else {
+                    isWifi = true;
+                }
+            } else {
+                isWifi = true;
+            }
+        }
+
+        if (!isWifi && !(isCellular && allowCellular)) {
+            await customAlert(unifiedErrorMsg);
+            return;
+        }
+
         const orig = regBtn.innerText;
         regBtn.innerText = 'Detecting…';
         regBtn.disabled = true;
@@ -549,22 +851,8 @@ function setupEventListeners() {
                 }
             } catch { }
 
-            let detectedSSID = '';
-            const isAndroid = /Android/i.test(navigator.userAgent);
-            if (isAndroid && window.Android && window.Android.getSSID) {
-                const s = window.Android.getSSID();
-                if (!s || s.includes('<unknown ssid>') || s === '0x' || s.trim() === '') {
-                    await customAlert('No available wifi network. Please connect to a Wi-Fi or turn on location services.');
-                    resetRegBtn(); return;
-                }
-                detectedSSID = s.replace(/"/g, '');
-            } else {
-                if (!navigator.onLine) {
-                    await customAlert('No available wifi network. You are offline.');
-                    resetRegBtn(); return;
-                }
-                detectedSSID = defaultName;
-            }
+            let detectedSSID = isWifi && s ? s.replace(/"/g, '') : (isCellular ? 'Cellular Data' : 'Manual Check-in');
+            if (!isWifi && !isCellular) detectedSSID = defaultName;
             detectedSSID = detectedSSID.trim();
 
             const detectedReliability = Math.floor(Math.random() * 20) + 80;
@@ -580,13 +868,18 @@ function setupEventListeners() {
 
                 let duplicate = null;
                 for (const pt of wifiPoints) {
-                    if (pt.ssid === detectedSSID && getDistance(pt.lat, pt.lng, lat, lng) <= 150) {
+                    if (pt.ssid === detectedSSID && getDistance(pt.lat, pt.lng, lat, lng) <= 400) {
                         duplicate = pt; break;
                     }
                 }
 
                 if (duplicate) {
                     if (!duplicate.history) duplicate.history = [];
+
+                    const lastHist = duplicate.history.length > 0 ? duplicate.history[duplicate.history.length - 1] : null;
+                    const prevDate = lastHist?.date || duplicate.dateAdded;
+                    const prevNote = lastHist?.note || duplicate.note || '';
+
                     window._pendingDuplicateHistoryObj = { date: Date.now(), altitude: Math.round(altitude), note: '' };
                     duplicate.history.push(window._pendingDuplicateHistoryObj);
                     duplicate.connections += 1;
@@ -595,6 +888,14 @@ function setupEventListeners() {
                     if (document.getElementById('stats-view').classList.contains('active')) updateCharts();
                     map.setView([lat, lng], 14);
                     resetRegBtn();
+
+                    const isWelcomeEn = localStorage.getItem('welcomeNotificationEnabled');
+                    if (isWelcomeEn === null || isWelcomeEn === 'true') {
+                        const dateStr = new Date(prevDate).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        const noteStr = prevNote ? `\n\nPrevious Note:\n"${prevNote}"` : '';
+                        await customAlert(`Last connection: ${dateStr}${noteStr}`, `Welcome back! 🎉`);
+                    }
+
                     window.openEditModal(duplicate.id);
                     document.getElementById('edit-wifi-note').value = ''; // Ensure the note is empty by default
                     return;
@@ -605,7 +906,7 @@ function setupEventListeners() {
                 document.getElementById('reg-wifi-note').value = '';
                 setColor('reg-color-picker', '#14b8a6');
                 document.getElementById('reg-location-info').innerText = `📍 ${city}, ${country}`;
-                window.pendingNewPoint = { id: String(Date.now()), lat, lng, city, country, dateAdded: Date.now() };
+                window.pendingNewPoint = { id: String(Date.now()), lat, lng, city, country, dateAdded: Date.now(), networkType: isCellular ? 'cellular' : 'wifi' };
                 document.getElementById('registration-modal').classList.remove('hidden');
                 resetRegBtn();
             };
@@ -614,16 +915,8 @@ function setupEventListeners() {
                 navigator.geolocation.getCurrentPosition(
                     pos => processLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.altitude || 0),
                     async err => {
-                        let reason = err.code === 1 ? 'Permission denied.' : err.code === 2 ? 'GPS unavailable.' : 'Timeout.';
-                        if (!window.isSecureContext) reason = 'HTTPS required for geolocation.';
-                        document.getElementById('geo-modal-desc').innerHTML = `Enable geolocation.<br><span style="color:#f87171;font-size:.9em"><b>Reason:</b> ${reason}</span>`;
-                        document.getElementById('geo-modal').classList.remove('hidden');
-                        window.pendingGeoRetry = attemptGeo;
-                        window.pendingGeoCancel = resetRegBtn;
-                        window.pendingGeoIP = async () => {
-                            if (ipLat && ipLng) processLocation(ipLat, ipLng, 0);
-                            else { await customAlert('Cannot get coordinates via IP.'); resetRegBtn(); }
-                        };
+                        await customAlert(unifiedErrorMsg);
+                        resetRegBtn();
                     },
                     { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
                 );
@@ -641,11 +934,76 @@ function setupEventListeners() {
         showLoading('Refreshing data…');
         if (window.Android && window.Android.loadPoints) {
             window.Android.loadPoints();
+            if (window.Android.fetchFriendData) {
+                window.Android.fetchFriendData();
+                window.Android.fetchAllFriendPoints();
+            }
         } else {
             // Fallback for preview mode
             setTimeout(() => { hideLoading(); renderMarkers(); updateCharts(); }, 600);
         }
     });
+
+    // Route Replay Logic
+    window._replayLayerGroup = L.featureGroup();
+    document.getElementById('play-route-btn').addEventListener('click', async () => {
+        if (window._isPlayingReplay) return;
+        const pts = typeof getActivePoints === 'function' ? getActivePoints() : [];
+        const validPts = pts.filter(p => p.lat != null && p.lng != null).sort((a, b) => Number(a.dateAdded) - Number(b.dateAdded));
+        if (validPts.length < 2) {
+            await customAlert("You need at least 2 connected points to replay a route.");
+            return;
+        }
+
+        if (markerClusterGroup) map.removeLayer(markerClusterGroup);
+        window._replayLayerGroup.clearLayers();
+        window._replayLayerGroup.addTo(map);
+
+        document.getElementById('replay-overlay').classList.remove('hidden');
+        window._isPlayingReplay = true;
+
+        let index = 0;
+        const stepMs = parseInt(localStorage.getItem('replaySpeed') || '600', 10);
+
+        const playNext = () => {
+            if (!window._isPlayingReplay) return;
+            const pt = validPts[index];
+            const statusEl = document.getElementById('replay-status');
+            if (statusEl) {
+                statusEl.innerText = `📍 ${index + 1} of ${validPts.length} — ${new Date(Number(pt.dateAdded)).toLocaleDateString()}`;
+            }
+
+            const mColor = pt.markerColor || '#10b981';
+            L.circleMarker([pt.lat, pt.lng], { radius: 6, fillColor: mColor, color: '#fff', weight: 2, fillOpacity: 1 }).addTo(window._replayLayerGroup);
+
+            if (index > 0) {
+                const prev = validPts[index - 1];
+                L.polyline([[prev.lat, prev.lng], [pt.lat, pt.lng]], { color: '#3b82f6', weight: 3, opacity: 0.7, dashArray: '5, 5' }).addTo(window._replayLayerGroup);
+            }
+
+            map.panTo([pt.lat, pt.lng], { animate: true, duration: stepMs / 1000 });
+
+            index++;
+            if (index < validPts.length) {
+                window._replayTimer = setTimeout(playNext, stepMs);
+            } else {
+                setTimeout(() => {
+                    if (window._isPlayingReplay) stopReplay();
+                }, 2000);
+            }
+        };
+        playNext();
+    });
+
+    document.getElementById('stop-replay-btn').addEventListener('click', stopReplay);
+
+    function stopReplay() {
+        window._isPlayingReplay = false;
+        clearTimeout(window._replayTimer);
+        document.getElementById('replay-overlay').classList.add('hidden');
+        if (window._replayLayerGroup) window._replayLayerGroup.clearLayers();
+        renderMarkers();
+    }
 
     const myLocBtn = document.getElementById('my-location-btn');
     if (myLocBtn) {
@@ -693,7 +1051,7 @@ function setupEventListeners() {
     document.getElementById('reg-modal-cancel').addEventListener('click', () => {
         document.getElementById('registration-modal').classList.add('hidden');
         const btn = document.getElementById('register-btn');
-        btn.innerText = 'Register network'; btn.disabled = false;
+        btn.innerText = '📍 Drop Pin / Check-in'; btn.disabled = false;
     });
 
     document.getElementById('reg-form').addEventListener('submit', async e => {
@@ -705,6 +1063,7 @@ function setupEventListeners() {
         pt.altitude = altVal ? Math.round(parseFloat(altVal)) : 0;
         pt.markerColor = getColor('reg-color-picker');
         pt.note = document.getElementById('reg-wifi-note').value.trim();
+        pt.isPrivate = document.getElementById('reg-wifi-private').checked;
         pt.connections = 1;
         wifiPoints.push(pt);
         savePoint(pt);
@@ -714,7 +1073,7 @@ function setupEventListeners() {
         document.getElementById('registration-modal').classList.add('hidden');
         await customAlert(`Saved: "${pt.ssid}"`);
         const btn = document.getElementById('register-btn');
-        btn.innerText = 'Register network'; btn.disabled = false;
+        btn.innerText = '📍 Drop Pin / Check-in'; btn.disabled = false;
     });
 
     // Edit modal
@@ -731,13 +1090,18 @@ function setupEventListeners() {
             point.ssid = document.getElementById('edit-wifi-name').value.trim();
             const altVal = document.getElementById('edit-wifi-altitude').value;
             if (altVal !== '') point.altitude = Math.round(parseFloat(altVal));
-            point.note = document.getElementById('edit-wifi-note').value.trim();
+
+            point.isPrivate = document.getElementById('edit-wifi-private').checked;
 
             if (window._pendingDuplicateHistoryObj) {
-                window._pendingDuplicateHistoryObj.note = point.note;
+                window._pendingDuplicateHistoryObj.note = document.getElementById('edit-wifi-note').value.trim();
                 window._pendingDuplicateHistoryObj = null;
+            } else {
+                point.note = document.getElementById('edit-wifi-note').value.trim();
             }
 
+            point.city = document.getElementById('edit-wifi-city').value.trim() || 'Unknown';
+            point.country = document.getElementById('edit-wifi-country').value.trim() || 'Unknown';
             point.markerColor = getColor('edit-color-picker');
             savePoint(point);
             renderMarkers();
@@ -754,6 +1118,34 @@ function setupEventListeners() {
             renderMarkers();
             document.getElementById('edit-modal').classList.add('hidden');
             if (document.getElementById('stats-view').classList.contains('active')) updateCharts();
+        }
+    });
+
+    initActivityPolling();
+}
+
+function initActivityPolling() {
+    let activityInterval = null;
+    const pingActivity = () => {
+        if (window.Android && window.Android.updateActivity) {
+            window.Android.updateActivity();
+        }
+    };
+
+    if (document.visibilityState === 'visible') {
+        pingActivity();
+        activityInterval = setInterval(pingActivity, 2 * 60 * 1000);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            pingActivity();
+            if (!activityInterval) activityInterval = setInterval(pingActivity, 2 * 60 * 1000);
+        } else {
+            if (activityInterval) {
+                clearInterval(activityInterval);
+                activityInterval = null;
+            }
         }
     });
 }
@@ -793,64 +1185,118 @@ function setMapTheme(key) {
 let markerClusterGroup = null;
 
 function renderMarkers() {
-    if (markerClusterGroup) {
-        map.removeLayer(markerClusterGroup);
+    try {
+        if (markerClusterGroup) {
+            map.removeLayer(markerClusterGroup);
+        }
+
+        // Cluster markers to massively improve zoom out performance
+        const density = parseInt(localStorage.getItem('clusterDensity') || '40', 10);
+
+        if (density > 0) {
+            markerClusterGroup = L.markerClusterGroup({
+                maxClusterRadius: density,
+                disableClusteringAtZoom: 15,
+                spiderfyOnMaxZoom: true,
+                showCoverageOnHover: false,
+                chunkedLoading: true
+            });
+        } else {
+            markerClusterGroup = L.featureGroup();
+        }
+
+        markers = [];
+        const scale = parseFloat(localStorage.getItem('markerSize') || '1.0');
+        const w = 30 * scale;
+        const h = 42 * scale;
+
+        if (!window._hideMyPoints && typeof wifiPoints !== 'undefined' && Array.isArray(wifiPoints)) {
+            wifiPoints.forEach(pt => {
+                try {
+                    if (!pt || pt.lat == null || pt.lng == null || isNaN(pt.lat) || isNaN(pt.lng)) return;
+
+                    let mColor = pt.markerColor || '#14b8a6';
+                    if (!pt.markerColor && pt.connections > 10) mColor = '#3b82f6';
+                    if (!pt.markerColor && pt.connections > 50) mColor = '#8b5cf6';
+
+                    const icon = L.divIcon({
+                        className: 'custom-pin',
+                        iconAnchor: [w / 2, h], popupAnchor: [0, -h],
+                        html: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 42" width="${w}" height="${h}">
+                            <path fill="${mColor}" d="M15 0C6.716 0 0 6.716 0 15c0 10.5 15 27 15 27s15-16.5 15-27c0-8.284-6.716-15-15-15z"/>
+                            <circle fill="#ffffff" cx="15" cy="15" r="7"/>
+                        </svg>`
+                    });
+                    const dateStr = pt.dateAdded ? new Date(pt.dateAdded).toLocaleDateString('en-US') : 'Unknown';
+                    const altStr = pt.altitude !== undefined && pt.altitude !== null ? pt.altitude : '0';
+                    const homeIndicator = pt.isHome ? `<div style="background:#eab308;color:#fff;padding:2px 6px;border-radius:4px;font-size:0.7rem;display:inline-block;margin-bottom:4px;box-shadow:0 2px 4px rgba(0,0,0,0.2);">🏠 Home Location</div><br>` : '';
+
+                    const popup = `<div class="custom-popup">
+                        ${homeIndicator}
+                        <b style="color:${mColor}">${pt.ssid || 'Unknown'}</b>
+                        <p>📍 ${pt.city || 'Unknown'}, ${pt.country || ''}</p>
+                        <p>📅 Added: ${dateStr}</p>
+                        <p>🏔️ Altitude: ${altStr} m</p>
+                        <p>🔗 Connections: ${pt.connections || 1}</p>
+                        <p>📝 Note: ${pt.note || 'None'}</p>
+                        <div style="display:flex;gap:8px;margin-top:8px;">
+                            <button class="popup-btn" style="flex:1;background:var(--btn-hist-bg);color:var(--btn-hist-text);" onclick="window.viewHistory('${pt.id}')">History</button>
+                            <button class="popup-btn" style="flex:1;background:${mColor};color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.5);" onclick="window.openEditModal('${pt.id}')">Edit</button>
+                        </div>
+                        ${!pt.isHome ? `<button class="popup-btn" style="width:100%;margin-top:8px;background:linear-gradient(135deg, #eab308, #d97706);color:#fff;font-weight:bold;" onclick="window.setAsHome('${pt.id}')">🏠 Set as Home</button>` : ''}
+                    </div>`;
+                    const marker = L.marker([pt.lat, pt.lng], { icon }).bindPopup(popup, { minWidth: 220 });
+                    markerClusterGroup.addLayer(marker);
+                    markers.push(marker);
+                } catch (e) {
+                    console.error("Failed to render user point:", pt, e);
+                }
+            });
+        }
+
+        if (window.friendWifiPoints && Array.isArray(window.friendWifiPoints)) {
+            window.friendWifiPoints.forEach(pt => {
+                try {
+                    if (!pt || pt.lat == null || pt.lng == null || isNaN(pt.lat) || isNaN(pt.lng)) return;
+
+                    const ownerIdStr = String(pt.ownerId);
+                    if (window.activeFriendFilters && !window.activeFriendFilters.has(ownerIdStr)) return;
+
+                    const profile = window.lastFriendProfiles ? window.lastFriendProfiles[ownerIdStr] : null;
+                    const displayName = profile && profile.displayName ? profile.displayName : 'Friend';
+                    const photoUrl = profile && profile.photoUrl ? profile.photoUrl : 'https://ui-avatars.com/api/?name=F';
+
+                    const html = `
+                        <div style="width:16px; height:16px; background-color:var(--teal); border-radius:8px 8px 8px 0; transform:rotate(-45deg); border:1px solid #fff; box-shadow:0 0 5px var(--teal); position:relative;">
+                            <div style="position:absolute; top:3px; right:3px; width:4px; height:4px; border-radius:50%; background:#10b981; border:1px solid #fff;"></div>
+                        </div>
+                    `;
+                    const icon = L.divIcon({ className: '', html: html, iconSize: [20, 20], iconAnchor: [8, 20], popupAnchor: [0, -20] });
+
+                    const mColor = pt.markerColor || '#14b8a6';
+                    const dateStr = pt.dateAdded ? new Date(pt.dateAdded).toLocaleDateString('en-US') : 'Unknown';
+                    const popup = `<div class="custom-popup">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                            <img src="${photoUrl}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1px solid var(--teal);" onerror="this.src='https://ui-avatars.com/api/?name=F';">
+                            <b style="color:var(--teal); font-size:1.1rem;">${displayName}</b>
+                        </div>
+                        <div style="color:var(--slate-light);">SSID:</div> 
+                        <b style="font-size:1.1rem; color:var(--text-color);">${pt.ssid || 'Unknown'}</b><br>
+                        <div style="margin-top:6px; font-size:0.8rem; color:var(--slate-light);">Visibility: <span style="color:#10b981;">Public</span></div>
+                    </div>`;
+                    const marker = L.marker([pt.lat, pt.lng], { icon }).bindPopup(popup, { minWidth: 200 });
+                    markerClusterGroup.addLayer(marker);
+                    markers.push(marker);
+                } catch (e) {
+                    console.error("Failed to render friend point:", pt, e);
+                }
+            });
+        }
+
+        markerClusterGroup.addTo(map);
+    } catch (e) {
+        console.error("Error running renderMarkers()", e);
     }
-
-    // Cluster markers to massively improve zoom out performance
-    const density = parseInt(localStorage.getItem('clusterDensity') || '40', 10);
-
-    if (density > 0) {
-        markerClusterGroup = L.markerClusterGroup({
-            maxClusterRadius: density,
-            disableClusteringAtZoom: 15, // Expand to individual pins when zoomed in closely
-            spiderfyOnMaxZoom: true,
-            showCoverageOnHover: false,
-            chunkedLoading: true // Renders pins in chunks to prevent UI freeze
-        });
-    } else {
-        markerClusterGroup = L.featureGroup();
-    }
-
-    markers = [];
-
-    const scale = parseFloat(localStorage.getItem('markerSize') || '1.0');
-    const w = 30 * scale;
-    const h = 42 * scale;
-
-    wifiPoints.forEach(pt => {
-        let mColor = pt.markerColor || '#14b8a6';
-        if (!pt.markerColor && pt.connections > 10) mColor = '#3b82f6';
-        if (!pt.markerColor && pt.connections > 50) mColor = '#8b5cf6';
-
-        const icon = L.divIcon({
-            className: 'custom-pin',
-            iconAnchor: [w / 2, h], popupAnchor: [0, -h],
-            html: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 42" width="${w}" height="${h}">
-                <path fill="${mColor}" d="M15 0C6.716 0 0 6.716 0 15c0 10.5 15 27 15 27s15-16.5 15-27c0-8.284-6.716-15-15-15z"/>
-                <circle fill="#ffffff" cx="15" cy="15" r="7"/>
-            </svg>`
-        });
-        const dateStr = new Date(pt.dateAdded).toLocaleDateString('en-US');
-        const altStr = pt.altitude !== undefined && pt.altitude !== null ? pt.altitude : '0';
-        const popup = `<div class="custom-popup">
-            <b style="color:${mColor}">${pt.ssid}</b>
-            <p>📍 ${pt.city}, ${pt.country}</p>
-            <p>📅 Added: ${dateStr}</p>
-            <p>🏔️ Altitude: ${altStr} m</p>
-            <p>🔗 Connections: ${pt.connections}</p>
-            <p>📝 Note: ${pt.note || 'None'}</p>
-            <div style="display:flex;gap:8px;margin-top:8px;">
-                <button class="popup-btn" style="flex:1;background:rgba(255,255,255,0.1);color:#fff" onclick="window.viewHistory('${pt.id}')">History</button>
-                <button class="popup-btn" style="flex:1;background:${mColor};color:#fff" onclick="window.openEditModal('${pt.id}')">Edit</button>
-            </div>
-        </div>`;
-        const marker = L.marker([pt.lat, pt.lng], { icon }).bindPopup(popup, { minWidth: 220 });
-        markerClusterGroup.addLayer(marker);
-        markers.push(marker);
-    });
-
-    markerClusterGroup.addTo(map);
 }
 
 window.viewHistory = function (id) {
@@ -862,13 +1308,16 @@ window.viewHistory = function (id) {
 
     const altStr = pt.altitude !== undefined && pt.altitude !== null ? pt.altitude : '0';
     histHtml += `
-        <div style="background:rgba(255,255,255,0.03); border-radius:8px; border:1px solid rgba(255,255,255,0.05); padding:10px; margin-bottom:8px;">
-            <div style="color:var(--teal); font-weight:700; font-size:0.85rem; margin-bottom:4px; display:flex; justify-content:space-between;">
-                <span>#1</span>
-                <span style="color:var(--slate-light); font-weight:500; font-size:0.8rem;">${new Date(Number(pt.dateAdded)).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+        <div style="background:var(--hist-bg); border-radius:8px; border:1px solid var(--hist-border); padding:10px; margin-bottom:8px;">
+            <div style="color:var(--teal); font-weight:700; font-size:0.85rem; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <span>#1</span>
+                    <span style="color:var(--slate-light); font-weight:500; font-size:0.8rem; margin-left:8px;">${new Date(Number(pt.dateAdded)).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                </div>
+                <button onclick="window.editHistoryNote('${pt.id}', -1)" style="background:transparent; border:none; color:var(--teal); cursor:pointer; font-size:1.1rem; padding: 0;" title="Edit Note">✏️</button>
             </div>
             <div style="color:var(--slate-light); font-size:0.8rem;">Alt: ${altStr}m</div>
-            ${pt.note ? `<div style="color:var(--text-main); font-size:0.8rem; margin-top:4px;">${pt.note}</div>` : ''}
+            ${pt.note ? `<div style="color:var(--text-main); font-size:0.8rem; margin-top:4px; word-wrap:break-word;">${pt.note}</div>` : ''}
         </div>
     `;
 
@@ -876,13 +1325,19 @@ window.viewHistory = function (id) {
         pt.history.forEach((h, i) => {
             const hAlt = h.altitude !== undefined && h.altitude !== null ? h.altitude : '0';
             histHtml += `
-                <div style="background:rgba(255,255,255,0.03); border-radius:8px; border:1px solid rgba(255,255,255,0.05); padding:10px; margin-bottom:8px;">
-                    <div style="color:var(--teal); font-weight:700; font-size:0.85rem; margin-bottom:4px; display:flex; justify-content:space-between;">
-                        <span>#${i + 2} ${h.auto ? '⚡' : ''}</span>
-                        <span style="color:var(--slate-light); font-weight:500; font-size:0.8rem;">${new Date(Number(h.date)).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                <div style="background:var(--hist-bg); border-radius:8px; border:1px solid var(--hist-border); padding:10px; margin-bottom:8px;">
+                    <div style="color:var(--teal); font-weight:700; font-size:0.85rem; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <span>#${i + 2} ${h.auto ? '⚡' : ''}</span>
+                            <span style="color:var(--slate-light); font-weight:500; font-size:0.8rem; margin-left:8px;">${new Date(Number(h.date)).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button onclick="window.editHistoryNote('${pt.id}', ${i})" style="background:transparent; border:none; color:var(--teal); cursor:pointer; font-size:1.1rem; padding: 0;" title="Edit Note">✏️</button>
+                            <button onclick="window.deleteHistoryItem('${pt.id}', ${i})" style="background:transparent; border:none; color:var(--danger); cursor:pointer; font-size:1.1rem; padding: 0;" title="Delete record">🗑️</button>
+                        </div>
                     </div>
                     <div style="color:var(--slate-light); font-size:0.8rem;">Alt: ${hAlt}m</div>
-                    ${h.note ? `<div style="color:var(--text-main); font-size:0.8rem; margin-top:4px;">${h.note}</div>` : ''}
+                    ${h.note ? `<div style="color:var(--text-main); font-size:0.8rem; margin-top:4px; word-wrap:break-word;">${h.note}</div>` : ''}
                 </div>
             `;
         });
@@ -904,6 +1359,76 @@ window.viewHistory = function (id) {
     modal.classList.remove('hidden');
 };
 
+window.editHistoryNote = async function (ptId, historyIndex) {
+    const pt = wifiPoints.find(p => String(p.id) === String(ptId));
+    if (!pt) return;
+
+    let currentNote = '';
+    if (historyIndex === -1) {
+        currentNote = pt.note || '';
+    } else if (pt.history && pt.history.length > historyIndex) {
+        currentNote = pt.history[historyIndex].note || '';
+    }
+
+    const newNote = await customPrompt('Edit note for this connection:', currentNote);
+
+    if (newNote !== null) {
+        const trimmed = newNote.trim();
+        if (historyIndex === -1) {
+            pt.note = trimmed;
+        } else {
+            pt.history[historyIndex].note = trimmed;
+        }
+        savePoint(pt);
+        renderMarkers();
+        if (document.getElementById('stats-view').classList.contains('active')) updateCharts();
+
+        setTimeout(() => window.viewHistory(ptId), 100);
+    } else {
+        setTimeout(() => window.viewHistory(ptId), 100);
+    }
+};
+
+window.deleteHistoryItem = async function (ptId, historyIndex) {
+    if (await customConfirm('Are you sure you want to delete this specific connection record?')) {
+        const pt = wifiPoints.find(p => String(p.id) === String(ptId));
+        if (pt && pt.history && pt.history.length > historyIndex) {
+            pt.history.splice(historyIndex, 1);
+            pt.connections = Math.max(1, pt.connections - 1);
+            savePoint(pt);
+            renderMarkers();
+            if (document.getElementById('stats-view').classList.contains('active')) {
+                updateCharts();
+            }
+        }
+    }
+    // Re-open history modal (delay gives customConfirm time to clean up)
+    setTimeout(() => {
+        window.viewHistory(ptId);
+    }, 50);
+};
+
+window.setAsHome = async function (id) {
+    if (await customConfirm("Make this location your Home Base? This will be used to calculate your furthest discovery.")) {
+        let changed = false;
+        wifiPoints.forEach(p => {
+            if (p.id === id) {
+                p.isHome = true;
+                savePoint(p);
+                changed = true;
+            } else if (p.isHome) {
+                p.isHome = false;
+                savePoint(p);
+                changed = true;
+            }
+        });
+        if (changed) {
+            renderMarkers();
+            if (typeof updateCharts === 'function') updateCharts();
+        }
+    }
+};
+
 window.openEditModal = function (id) {
     const point = wifiPoints.find(p => String(p.id) === String(id));
     if (!point) return;
@@ -911,9 +1436,12 @@ window.openEditModal = function (id) {
     document.getElementById('edit-wifi-name').value = point.ssid;
     document.getElementById('edit-wifi-altitude').value = point.altitude !== undefined ? Math.round(point.altitude) : '';
     document.getElementById('edit-wifi-note').value = point.note || '';
+    document.getElementById('edit-wifi-private').checked = !!point.isPrivate;
+    document.getElementById('edit-wifi-city').value = point.city || '';
+    document.getElementById('edit-wifi-country').value = point.country || '';
     setColor('edit-color-picker', point.markerColor || '#3b82f6');
-    document.getElementById('edit-location-info').innerText =
-        `📍 ${point.city}, ${point.country} | Connections: ${point.connections}`;
+    document.getElementById('edit-connections-info').innerText =
+        `🔗 Connections: ${point.connections}`;
     map.closePopup();
     document.getElementById('edit-modal').classList.remove('hidden');
 };
@@ -928,6 +1456,8 @@ function initCharts() {
     if (charts.total) charts.total.destroy();
     if (charts.altitudeInfo) charts.altitudeInfo.destroy();
     if (charts.places) charts.places.destroy();
+    if (charts.countries) charts.countries.destroy();
+    if (charts.networkPie) charts.networkPie.destroy();
 
     charts.trend = new Chart(document.getElementById('trendChart').getContext('2d'), {
         type: 'line', data: { labels: [], datasets: [] },
@@ -935,7 +1465,14 @@ function initCharts() {
     });
     charts.altitudeInfo = new Chart(document.getElementById('altitudeHistogramChart').getContext('2d'), {
         type: 'bar', data: { labels: [], datasets: [] },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'Count' } }, x: { title: { display: true, text: 'Altitude Ranges (m)' } } } }
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: 'Count' } },
+                x: { title: { display: true, text: 'Altitude Ranges (m)' } }
+            }
+        }
     });
 
     document.querySelectorAll('#trend-group-filters .chart-filter-btn').forEach(btn => {
@@ -948,7 +1485,25 @@ function initCharts() {
     });
     charts.places = new Chart(document.getElementById('placesChart').getContext('2d'), {
         type: 'bar', data: { labels: [], datasets: [] },
-        options: { indexAxis: 'y', responsive: true, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+        options: {
+            indexAxis: 'y', responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 } },
+                y: { ticks: { autoSkip: false } }
+            }
+        }
+    });
+    charts.countries = new Chart(document.getElementById('countriesChart').getContext('2d'), {
+        type: 'bar', data: { labels: [], datasets: [] },
+        options: {
+            indexAxis: 'y', responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { beginAtZero: true, ticks: { precision: 0 } },
+                y: { ticks: { autoSkip: false } }
+            }
+        }
     });
 
     if (charts.altitudeTime) charts.altitudeTime.destroy();
@@ -1001,74 +1556,193 @@ function initCharts() {
 
     const connSelect = document.getElementById('connections-count-select');
     if (connSelect) connSelect.addEventListener('change', populateTables);
+
+    const topLocSelect = document.getElementById('top-locations-count');
+    if (topLocSelect) topLocSelect.addEventListener('change', updateCharts);
+
+    const topCountriesSelect = document.getElementById('top-countries-count');
+    if (topCountriesSelect) topCountriesSelect.addEventListener('change', updateCharts);
+
+    charts.networkPie = new Chart(document.getElementById('networkPieChart').getContext('2d'), {
+        type: 'doughnut',
+        data: { labels: ['Wi-Fi', 'Mobile Network'], datasets: [] },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom', labels: { color: Chart.defaults.color } } },
+            cutout: '75%',
+            elements: { arc: { borderWidth: 0 } }
+        }
+    });
+
+    document.querySelectorAll('#network-pie-filters .chart-filter-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('#network-pie-filters .chart-filter-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            window._networkPieRange = e.target.getAttribute('data-range');
+            updateNetworkPieChart();
+        });
+    });
+
+    document.querySelectorAll('#heatmap-filters .chart-filter-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('#heatmap-filters .chart-filter-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            window._heatmapRange = e.target.getAttribute('data-range');
+            updateHeatmap();
+        });
+    });
+}
+
+function getActivePoints() {
+    try {
+        let pts = [];
+        if (!window._hideMyPoints && typeof wifiPoints !== 'undefined' && Array.isArray(wifiPoints)) {
+            pts = pts.concat(wifiPoints);
+        }
+        if (window.friendWifiPoints && Array.isArray(window.friendWifiPoints)) {
+            window.friendWifiPoints.forEach(p => {
+                try {
+                    const ownerIdStr = String(p.ownerId || '');
+                    if (window.activeFriendFilters && window.activeFriendFilters.has(ownerIdStr)) {
+                        pts.push(p);
+                    }
+                } catch (e) { }
+            });
+        }
+        return pts;
+    } catch (e) {
+        console.error("getActivePoints error:", e);
+        return typeof wifiPoints !== 'undefined' && Array.isArray(wifiPoints) ? wifiPoints : [];
+    }
 }
 
 function updateCharts() {
-    buildGlobalConnections();
+    try {
+        buildGlobalConnections();
 
-    const totalConnections = wifiPoints.reduce((s, p) => s + p.connections, 0);
-    document.getElementById('total-connections-val').innerText = totalConnections;
-    document.getElementById('unique-connections-val').innerText = wifiPoints.length;
+        const pts = typeof getActivePoints === 'function' ? getActivePoints() : (typeof wifiPoints !== 'undefined' && Array.isArray(wifiPoints) ? wifiPoints : []);
+        const totalConnections = pts.reduce((s, p) => s + (Number(p.connections) || 1), 0);
+        document.getElementById('total-connections-val').innerText = totalConnections;
+        document.getElementById('unique-connections-val').innerText = pts.length;
 
-    updateTrendChart();
-    updateTimeline();
-    updateAltitudeTimeChart();
+        // Furthest Discovery Logic
+        const homeElVal = document.getElementById('furthest-point-val');
+        const homeElDesc = document.getElementById('furthest-point-desc');
+        if (homeElVal && homeElDesc && typeof wifiPoints !== 'undefined' && Array.isArray(wifiPoints)) {
+            const homePoint = wifiPoints.find(p => p.isHome);
+            if (homePoint && homePoint.lat != null && homePoint.lng != null) {
+                let maxDist = 0;
+                let furthestPt = null;
+                pts.forEach(p => {
+                    if (p.lat != null && p.lng != null) {
+                        const dist = getDistance(homePoint.lat, homePoint.lng, p.lat, p.lng);
+                        if (dist > maxDist) {
+                            maxDist = dist;
+                            furthestPt = p;
+                        }
+                    }
+                });
 
-    // Altitude Statistics
-    let altitudes = wifiPoints.map(p => p.altitude || 0).filter(a => typeof a === 'number');
-    if (altitudes.length > 0) {
-        altitudes.sort((a, b) => a - b);
-        const min = Math.round(altitudes[0]);
-        const max = Math.round(altitudes[altitudes.length - 1]);
-        const avg = Math.round(altitudes.reduce((a, b) => a + b, 0) / altitudes.length);
-        const median = altitudes.length % 2 === 0 ? (altitudes[altitudes.length / 2 - 1] + altitudes[altitudes.length / 2]) / 2 : altitudes[Math.floor(altitudes.length / 2)];
-        document.getElementById('alt-min-val').innerText = min + 'm';
-        document.getElementById('alt-max-val').innerText = max + 'm';
-        document.getElementById('alt-avg-val').innerText = avg + 'm';
-        document.getElementById('alt-median-val').innerText = Math.round(median) + 'm';
-
-        // Build DYNAMIC Histogram — bins auto-scale to actual altitude range
-        const BINS = 6;
-        const binMin = Math.max(0, Math.floor(min / 10) * 10);
-        const binMax = Math.max(binMin + BINS * 10, Math.ceil(max / 10) * 10 + 10);
-        const step = Math.ceil((binMax - binMin) / BINS);
-        const bins = [], counts = [];
-        for (let i = 0; i < BINS; i++) {
-            const lo = binMin + i * step;
-            const hi = binMin + (i + 1) * step;
-            bins.push(`${lo}-${hi}m`);
-            counts.push(altitudes.filter(a => a >= lo && a < hi).length);
+                if (furthestPt && maxDist > 500) { // If distance > 500 meters
+                    const km = Math.round(maxDist / 1000).toLocaleString();
+                    homeElVal.innerText = `${km} km from Home`;
+                    homeElDesc.innerHTML = `📍 ${furthestPt.city || 'Unknown'}${furthestPt.country ? ', ' + furthestPt.country : ''} &nbsp;&mdash;&nbsp; <b>${furthestPt.ssid || 'Unknown'}</b>`;
+                } else {
+                    homeElVal.innerText = `You are at Home!`;
+                    homeElDesc.innerText = `Explore more to calculate your furthest discovery.`;
+                }
+            } else {
+                homeElVal.innerText = 'No Home Set';
+                homeElDesc.innerText = 'Tap any of your pins on the map to "Set as Home"';
+            }
         }
-        // Merge empty trailing bins
-        let lastNonEmpty = counts.length - 1;
-        while (lastNonEmpty > 0 && counts[lastNonEmpty] === 0) lastNonEmpty--;
-        const trimmedBins = bins.slice(0, lastNonEmpty + 1);
-        const trimmedCounts = counts.slice(0, lastNonEmpty + 1);
-        charts.altitudeInfo.data = {
-            labels: trimmedBins,
-            datasets: [{ data: trimmedCounts, backgroundColor: '#3b82f6', borderRadius: 4 }]
+
+        updateTrendChart();
+        updateTimeline();
+        updateAltitudeTimeChart();
+        updateNetworkPieChart();
+        updateHeatmap();
+
+        // Altitude Statistics
+        let altitudes = pts.map(p => p.altitude || 0).filter(a => typeof a === 'number');
+        if (altitudes.length > 0) {
+            altitudes.sort((a, b) => a - b);
+            const min = Math.round(altitudes[0]);
+            const max = Math.round(altitudes[altitudes.length - 1]);
+            const avg = Math.round(altitudes.reduce((a, b) => a + b, 0) / altitudes.length);
+            const median = altitudes.length % 2 === 0 ? (altitudes[altitudes.length / 2 - 1] + altitudes[altitudes.length / 2]) / 2 : altitudes[Math.floor(altitudes.length / 2)];
+            document.getElementById('alt-min-val').innerText = min + 'm';
+            document.getElementById('alt-max-val').innerText = max + 'm';
+            document.getElementById('alt-avg-val').innerText = avg + 'm';
+            document.getElementById('alt-median-val').innerText = Math.round(median) + 'm';
+
+            // Build DYNAMIC Histogram — bins auto-scale to actual altitude range
+            const BINS = 6;
+            const binMin = Math.floor(min / 10) * 10;
+            const binMax = Math.max(binMin + BINS * 10, Math.ceil(max / 10) * 10 + 10);
+            const step = Math.ceil((binMax - binMin) / BINS);
+            const bins = [], counts = [];
+            for (let i = 0; i < BINS; i++) {
+                const lo = binMin + i * step;
+                const hi = binMin + (i + 1) * step;
+                bins.push(`${lo}-${hi}m`);
+                counts.push(altitudes.filter(a => a >= lo && a < hi).length);
+            }
+            // Merge empty trailing bins
+            let lastNonEmpty = counts.length - 1;
+            while (lastNonEmpty > 0 && counts[lastNonEmpty] === 0) lastNonEmpty--;
+            const trimmedBins = bins.slice(0, lastNonEmpty + 1);
+            const trimmedCounts = counts.slice(0, lastNonEmpty + 1);
+            charts.altitudeInfo.data = {
+                labels: trimmedBins,
+                datasets: [{
+                    data: trimmedCounts,
+                    backgroundColor: '#3b82f6',
+                    borderRadius: 2,
+                    barPercentage: 1.0,
+                    categoryPercentage: 1.0
+                }]
+            };
+            charts.altitudeInfo.update();
+        } else {
+            document.getElementById('alt-min-val').innerText = '0m';
+            document.getElementById('alt-max-val').innerText = '0m';
+            document.getElementById('alt-avg-val').innerText = '0m';
+            document.getElementById('alt-median-val').innerText = '0m';
+            charts.altitudeInfo.data = { labels: ['No Data'], datasets: [{ data: [0] }] };
+            charts.altitudeInfo.update();
+        }
+
+        // Top Locations — show UNIQUE networks per city (count of wifiPoints per city)
+        const locChartSelect = document.getElementById('top-locations-count');
+        const locChartLimit = locChartSelect ? parseInt(locChartSelect.value) : 5;
+
+        const cityUnique = {};
+        pts.forEach(p => { const k = `${p.city}, ${p.country}`; cityUnique[k] = (cityUnique[k] || 0) + 1; });
+        const top5 = Object.entries(cityUnique).sort((a, b) => b[1] - a[1]).slice(0, locChartLimit);
+        charts.places.data = {
+            labels: top5.length ? top5.map(c => c[0]) : ['No data'],
+            datasets: [{ label: 'Unique Networks', data: top5.map(c => c[1]), backgroundColor: '#0f766e', borderRadius: 4 }]
         };
-        charts.altitudeInfo.update();
-    } else {
-        document.getElementById('alt-min-val').innerText = '0m';
-        document.getElementById('alt-max-val').innerText = '0m';
-        document.getElementById('alt-avg-val').innerText = '0m';
-        document.getElementById('alt-median-val').innerText = '0m';
-        charts.altitudeInfo.data = { labels: ['No Data'], datasets: [{ data: [0] }] };
-        charts.altitudeInfo.update();
+        charts.places.update();
+
+        // Top Countries — show UNIQUE networks per country
+        const countryChartSelect = document.getElementById('top-countries-count');
+        const countryChartLimit = countryChartSelect ? parseInt(countryChartSelect.value) : 5;
+
+        const countryUnique = {};
+        pts.forEach(p => { const k = p.country || 'Unknown'; countryUnique[k] = (countryUnique[k] || 0) + 1; });
+        const topCountries = Object.entries(countryUnique).sort((a, b) => b[1] - a[1]).slice(0, countryChartLimit);
+        charts.countries.data = {
+            labels: topCountries.length ? topCountries.map(c => c[0]) : ['No data'],
+            datasets: [{ label: 'Unique Networks', data: topCountries.map(c => c[1]), backgroundColor: '#3b82f6', borderRadius: 4 }]
+        };
+        charts.countries.update();
+
+        populateTables();
+    } catch (e) {
+        console.error("updateCharts error:", e);
     }
-
-    // Top Locations — show UNIQUE networks per city (count of wifiPoints per city)
-    const cityUnique = {};
-    wifiPoints.forEach(p => { const k = `${p.city}, ${p.country}`; cityUnique[k] = (cityUnique[k] || 0) + 1; });
-    const top5 = Object.entries(cityUnique).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    charts.places.data = {
-        labels: top5.length ? top5.map(c => c[0]) : ['No data'],
-        datasets: [{ label: 'Unique Networks', data: top5.map(c => c[1]), backgroundColor: '#0f766e', borderRadius: 4 }]
-    };
-    charts.places.update();
-
-    populateTables();
 }
 
 function populateTables() {
@@ -1078,7 +1752,8 @@ function populateTables() {
     const locTbody = document.getElementById('recent-locations-tbody');
     if (locTbody) {
         locTbody.innerHTML = '';
-        const sortedPoints = [...wifiPoints].sort((a, b) => Number(b.dateAdded) - Number(a.dateAdded)).slice(0, locLimit);
+        const pts = typeof getActivePoints === 'function' ? getActivePoints() : (typeof wifiPoints !== 'undefined' ? wifiPoints : []);
+        const sortedPoints = [...pts].sort((a, b) => Number(b.dateAdded) - Number(a.dateAdded)).slice(0, locLimit);
         if (sortedPoints.length === 0) {
             locTbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--slate-light);">No locations recorded yet.</td></tr>';
         } else {
@@ -1151,7 +1826,8 @@ function updateTrendChart() {
         }
     };
 
-    wifiPoints.forEach(pt => {
+    const pts = typeof getActivePoints === 'function' ? getActivePoints() : (window.wifiPoints || []);
+    pts.forEach(pt => {
         const k = getGroupKey(Number(pt.dateAdded));
         trendUnique[k] = (trendUnique[k] || 0) + 1;
     });
@@ -1178,7 +1854,8 @@ function updateTrendChart() {
 
 function buildGlobalConnections() {
     let connections = [];
-    wifiPoints.forEach(pt => {
+    const pts = typeof getActivePoints === 'function' ? getActivePoints() : (typeof wifiPoints !== 'undefined' ? wifiPoints : []);
+    pts.forEach(pt => {
         // All events for this point, newest first
         const allForPt = [
             { date: Number(pt.dateAdded), note: pt.note || '', altitude: pt.altitude || 0 },
@@ -1250,8 +1927,8 @@ function updateTimeline() {
     const maxDate = filtered[filtered.length - 1].date;
     const totalMs = maxDate - minDate || 1;
 
-    const minSpacing = 10;   // px tight baseline
-    const maxSpacing = 90;   // px cap to avoid wide gaps
+    const minSpacing = 15;   // px tight baseline
+    const maxSpacing = 120;   // px cap to avoid wide gaps
 
     // Build nodes first (needed to measure widths for the SVG line)
     const nodes = [];
@@ -1388,3 +2065,108 @@ function updateAltitudeTimeChart() {
     charts.altitudeTime.options.plugins.legend.labels = { color: Chart.defaults.color };
     charts.altitudeTime.update();
 }
+
+function updateNetworkPieChart() {
+    if (!charts.networkPie || !window._allConnections) return;
+    if (!window._networkPieRange) window._networkPieRange = 'ALL';
+
+    const cutoff = getCutoff(window._networkPieRange);
+    const filtered = window._allConnections.filter(c => c.date >= cutoff);
+
+    let wifiCount = 0;
+    let mobileCount = 0;
+
+    filtered.forEach(c => {
+        let type = c.networkType;
+        if (!type) {
+            type = (c.ssid === 'Cellular Data') ? 'cellular' : 'wifi';
+        }
+        if (type === 'cellular') {
+            mobileCount++;
+        } else {
+            wifiCount++;
+        }
+    });
+
+    if (wifiCount === 0 && mobileCount === 0) {
+        charts.networkPie.data = {
+            labels: ['No Data'],
+            datasets: [{ data: [1], backgroundColor: ['rgba(255,255,255,0.05)'] }]
+        };
+    } else {
+        charts.networkPie.data = {
+            labels: ['Wi-Fi', 'Mobile Network'],
+            datasets: [{
+                data: [wifiCount, mobileCount],
+                backgroundColor: ['#14b8a6', '#6366f1'],
+                hoverOffset: 4
+            }]
+        };
+    }
+    charts.networkPie.update();
+}
+
+function updateHeatmap() {
+    if (!window._allConnections) return;
+    if (!window._heatmapRange) window._heatmapRange = 'ALL';
+
+    const cutoff = getCutoff(window._heatmapRange);
+    const filtered = window._allConnections.filter(c => c.date >= cutoff);
+
+    const counts = Array.from({ length: 7 }, () => Array(24).fill(0));
+    let maxCount = 0;
+
+    filtered.forEach(c => {
+        const d = new Date(c.date);
+        let day = d.getDay() - 1; // 0 is Monday, 6 is Sunday
+        if (day === -1) day = 6;
+        const hr = d.getHours();
+        counts[day][hr]++;
+        if (counts[day][hr] > maxCount) maxCount = counts[day][hr];
+    });
+
+    const container = document.getElementById('activityHeatmap');
+    if (!container) return;
+
+    let html = '';
+
+    // Header row (Empty + 24 hours)
+    html += `<div style="min-width: 30px;"></div>`;
+    for (let h = 0; h < 24; h++) {
+        html += `<div class="heatmap-hour-label">${h % 2 === 0 ? h : ''}</div>`;
+    }
+
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const tooltipDayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+    for (let d = 0; d < 7; d++) {
+        html += `<div class="heatmap-day-label">${dayNames[d]}</div>`;
+        for (let h = 0; h < 24; h++) {
+            const count = counts[d][h];
+            let opacity = 0.05;
+            if (maxCount > 0 && count > 0) {
+                // Scale opacity from 0.2 to 1.0 depending on value
+                opacity = 0.2 + (count / maxCount) * 0.8;
+            }
+
+            let bg;
+            if (count === 0) {
+                bg = 'rgba(20, 184, 166, 0.05)';
+            } else {
+                bg = `rgba(20, 184, 166, ${opacity})`;
+            }
+
+            const timeRange = `${String(h).padStart(2, '0')}:00 - ${String(h + 1).padStart(2, '0')}:00`;
+            const countText = count === 1 ? '1 connection' : `${count} connections`;
+
+            html += `
+                <div class="heatmap-cell" style="background: ${bg};">
+                    <div class="tooltip">${tooltipDayNames[d]}<br>${timeRange}<br><b style="color:var(--teal)">${countText}</b></div>
+                </div>
+            `;
+        }
+    }
+
+    container.innerHTML = html;
+}
+
