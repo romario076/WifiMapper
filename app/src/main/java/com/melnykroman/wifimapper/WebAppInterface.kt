@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import org.json.JSONArray
 import org.json.JSONObject
+import com.google.firebase.Timestamp
 
 class WebAppInterface(
     private val activity: MainActivity,
@@ -22,6 +23,34 @@ class WebAppInterface(
 
     private val db = FirebaseFirestore.getInstance()
     private val analytics = FirebaseAnalytics.getInstance(activity)
+
+    /**
+     * Converts a Firestore document data map to a JSONObject,
+     * replacing any Firestore Timestamp values with epoch milliseconds (Long).
+     */
+    private fun docDataToJson(data: Map<String, Any>): JSONObject {
+        val obj = JSONObject()
+        for ((key, value) in data) {
+            when (value) {
+                is Timestamp -> obj.put(key, value.toDate().time)
+                is Map<*, *> -> {
+                    // Nested map — check if it looks like a Timestamp {seconds, nanoseconds}
+                    @Suppress("UNCHECKED_CAST")
+                    val m = value as Map<String, Any>
+                    if (m.containsKey("seconds") && m.containsKey("nanoseconds")) {
+                        val secs = (m["seconds"] as? Long) ?: (m["seconds"] as? Int)?.toLong() ?: 0L
+                        obj.put(key, secs * 1000L)
+                    } else {
+                        obj.put(key, JSONObject(m))
+                    }
+                }
+                is List<*> -> obj.put(key, JSONArray(value))
+                null -> { /* skip null */ }
+                else -> obj.put(key, value)
+            }
+        }
+        return obj
+    }
 
     // ── Auth ──────────────────────────────────────────────────────────────
 
@@ -77,7 +106,7 @@ class WebAppInterface(
                 val arr = JSONArray()
                 for (doc in snapshot.documents) {
                     val data = doc.data ?: continue
-                    val obj = JSONObject(data).apply {
+                    val obj = docDataToJson(data).apply {
                         put("id", doc.id)
                     }
                     arr.put(obj)
@@ -289,15 +318,31 @@ class WebAppInterface(
     }
 
     @JavascriptInterface
-    fun acceptFriendRequest(friendUid: String) {
+    fun acceptFriendRequest(friendUid: String, accessLevel: String = "full") {
         val myUid = auth.currentUser?.uid ?: return
         val myRef = db.collection("Users").document(myUid)
         val friendRef = db.collection("Users").document(friendUid)
         
+        // Store as map objects: { uid, accessLevel }
+        val myFriendEntry = hashMapOf("uid" to friendUid, "accessLevel" to accessLevel)
+        val theirFriendEntry = hashMapOf("uid" to myUid, "accessLevel" to accessLevel)
+        
         db.runTransaction { tx ->
+            val myDoc = tx.get(myRef)
+            val friendDoc = tx.get(friendRef)
+            
+            // Remove legacy plain-string entries if any
+            val myFriends = (myDoc.get("friendsList") as? List<*>)?.toMutableList() ?: mutableListOf()
+            myFriends.removeAll { it is String && it == friendUid }
+            myFriends.add(myFriendEntry)
+            
+            val theirFriends = (friendDoc.get("friendsList") as? List<*>)?.toMutableList() ?: mutableListOf()
+            theirFriends.removeAll { it is String && it == myUid }
+            theirFriends.add(theirFriendEntry)
+            
             tx.update(myRef, "friendRequests", FieldValue.arrayRemove(friendUid))
-            tx.set(myRef, hashMapOf("friends" to FieldValue.arrayUnion(friendUid)), SetOptions.merge())
-            tx.set(friendRef, hashMapOf("friends" to FieldValue.arrayUnion(myUid)), SetOptions.merge())
+            tx.set(myRef, hashMapOf("friendsList" to myFriends, "friends" to FieldValue.arrayUnion(friendUid)), SetOptions.merge())
+            tx.set(friendRef, hashMapOf("friendsList" to theirFriends, "friends" to FieldValue.arrayUnion(myUid)), SetOptions.merge())
             null
         }.addOnSuccessListener {
             activity.runOnUiThread { webView.evaluateJavascript("onFriendActionSuccess('request_accepted')", null) }
@@ -339,28 +384,75 @@ class WebAppInterface(
     }
 
     @JavascriptInterface
+    fun updateFriendAccess(friendUid: String, newAccessLevel: String) {
+        val myUid = auth.currentUser?.uid ?: return
+        val myRef = db.collection("Users").document(myUid)
+        val friendRef = db.collection("Users").document(friendUid)
+
+        db.runTransaction { tx ->
+            val myDoc = tx.get(myRef)
+            val friendDoc = tx.get(friendRef)
+
+            val myFriends = (myDoc.get("friendsList") as? List<*>)?.toMutableList() ?: mutableListOf()
+            val myIdx = myFriends.indexOfFirst { (it as? Map<*, *>)?.get("uid") == friendUid }
+            if (myIdx >= 0) myFriends[myIdx] = hashMapOf("uid" to friendUid, "accessLevel" to newAccessLevel)
+            else myFriends.add(hashMapOf("uid" to friendUid, "accessLevel" to newAccessLevel))
+
+            val theirFriends = (friendDoc.get("friendsList") as? List<*>)?.toMutableList() ?: mutableListOf()
+            val theirIdx = theirFriends.indexOfFirst { (it as? Map<*, *>)?.get("uid") == myUid }
+            if (theirIdx >= 0) theirFriends[theirIdx] = hashMapOf("uid" to myUid, "accessLevel" to newAccessLevel)
+            else theirFriends.add(hashMapOf("uid" to myUid, "accessLevel" to newAccessLevel))
+
+            tx.set(myRef, hashMapOf("friendsList" to myFriends), SetOptions.merge())
+            tx.set(friendRef, hashMapOf("friendsList" to theirFriends), SetOptions.merge())
+            null
+        }.addOnSuccessListener {
+            activity.runOnUiThread {
+                webView.evaluateJavascript("onFriendActionSuccess('access_updated')", null)
+            }
+        }.addOnFailureListener { e ->
+            activity.runOnUiThread {
+                webView.evaluateJavascript("onFriendActionError('Failed to update access: ${e.message}')", null)
+            }
+        }
+    }
+
+    @JavascriptInterface
     fun fetchFriendData() {
         val myUid = auth.currentUser?.uid ?: return
         db.collection("Users").document(myUid).get()
-            .addOnSuccessListener { doc ->
-                // Ensure safe unchecked cast logic
-                val requests = (doc.get("friendRequests") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                val friends = (doc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                
-                val allUids = (requests + friends).distinct().take(10)
+            .addOnSuccessListener { myDoc ->
+                val requests = (myDoc.get("friendRequests") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                val friends = (myDoc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                // Read MY friendsList to resolve access levels for each friend
+                val myFriendsList = (myDoc.get("friendsList") as? List<*>) ?: emptyList<Any>()
+                val accessMap = myFriendsList.filterIsInstance<Map<*, *>>()
+                    .associate { (it["uid"] as? String ?: "") to (it["accessLevel"] as? String ?: "full") }
+                // My own privacy level = what I share with my friends
+                // stored as each entry's accessLevel in MY friendsList (they should all be the same after setMyDefaultPrivacy)
+                val myPrivacyLevel = myFriendsList.filterIsInstance<Map<*, *>>()
+                    .mapNotNull { it["accessLevel"] as? String }.firstOrNull() ?: "full"
+
+                val allUids = (requests + friends).distinct().take(20)
                 if (allUids.isEmpty()) {
-                    pushFriendDataToJS(requests, friends, emptyList())
+                    pushFriendDataToJS(requests, friends, emptyList(), accessMap, myPrivacyLevel)
                     return@addOnSuccessListener
                 }
-                
+
                 db.collection("Users").whereIn(com.google.firebase.firestore.FieldPath.documentId(), allUids).get()
                     .addOnSuccessListener { snapshot ->
-                        pushFriendDataToJS(requests, friends, snapshot.documents)
+                        pushFriendDataToJS(requests, friends, snapshot.documents, accessMap, myPrivacyLevel)
                     }
             }
     }
     
-    private fun pushFriendDataToJS(requests: List<String>, friends: List<String>, userDocs: List<com.google.firebase.firestore.DocumentSnapshot>) {
+    private fun pushFriendDataToJS(
+        requests: List<String>,
+        friends: List<String>,
+        userDocs: List<com.google.firebase.firestore.DocumentSnapshot>,
+        accessMap: Map<String, String> = emptyMap(),
+        myPrivacyLevel: String = "full"
+    ) {
         val usersJson = JSONObject()
         for (doc in userDocs) {
             val uid = doc.id
@@ -369,16 +461,19 @@ class WebAppInterface(
                 put("displayName", doc.getString("displayName") ?: "")
                 put("photoUrl", doc.getString("photoUrl") ?: "")
                 put("lastActive", doc.getLong("lastActive") ?: 0L)
+                // Access level comes from MY OWN friendsList, not the friend's doc
+                put("accessLevel", accessMap[uid] ?: "full")
             }
             usersJson.put(uid, obj)
         }
-        
+
         val payload = JSONObject().apply {
             put("requests", JSONArray(requests))
             put("friends", JSONArray(friends))
             put("profiles", usersJson)
+            put("myPrivacyLevel", myPrivacyLevel)
         }
-        
+
         val b64 = android.util.Base64.encodeToString(
             payload.toString().toByteArray(Charsets.UTF_8),
             android.util.Base64.NO_WRAP
@@ -387,22 +482,109 @@ class WebAppInterface(
             webView.evaluateJavascript("onFriendDataReceived(decodeURIComponent(escape(atob('$b64'))))", null)
         }
     }
-
+    @JavascriptInterface
+    fun fetchFriendStats(friendUid: String) {
+        db.collection("users").document(friendUid).collection("points")
+            .get()
+            .addOnSuccessListener { snapshot ->
+                val points = snapshot.documents.filter { !(it.getBoolean("isPrivate") ?: false) }
+                val countries = points.mapNotNull { it.getString("country") }.filter { it.isNotBlank() }.toSet()
+                val cities = points.mapNotNull { it.getString("city") }.filter { it.isNotBlank() }.toSet()
+                val totalConnections = points.sumOf { (it.getLong("connections") ?: 1L).toInt() }
+                val altitudes = points.mapNotNull { it.getDouble("altitude") }.filter { it != 0.0 }
+                val minAlt = if (altitudes.isNotEmpty()) altitudes.min() else 0.0
+                val maxAlt = if (altitudes.isNotEmpty()) altitudes.max() else 0.0
+                
+                val uniqueWifi = points.count { 
+                    val netType = it.getString("networkType")
+                    val ssid = it.getString("ssid")
+                    (netType != "cellular") && (ssid != "Cellular Data")
+                }
+                
+                var furthestDesc = "No Home Set"
+                val homePoint = points.find { it.getBoolean("isHome") == true }
+                if (homePoint != null) {
+                    val homeLat = homePoint.getDouble("lat")
+                    val homeLng = homePoint.getDouble("lng")
+                    if (homeLat != null && homeLng != null) {
+                        var maxDist = 0.0f
+                        var furthestPt = homePoint
+                        val results = FloatArray(1)
+                        for (p in points) {
+                            val lat = p.getDouble("lat")
+                            val lng = p.getDouble("lng")
+                            if (lat != null && lng != null) {
+                                android.location.Location.distanceBetween(homeLat, homeLng, lat, lng, results)
+                                if (results[0] > maxDist) {
+                                    maxDist = results[0]
+                                    furthestPt = p
+                                }
+                            }
+                        }
+                        if (maxDist > 500) {
+                            val km = Math.round(maxDist / 1000f).toInt()
+                            val city = furthestPt?.getString("city") ?: "Unknown"
+                            val country = furthestPt?.getString("country") ?: ""
+                            val ssid = furthestPt?.getString("ssid") ?: "Unknown"
+                            val loc = if (country.isNotBlank()) "$city, $country" else city
+                            furthestDesc = "$km km from Home - 📍 $loc — $ssid"
+                        } else {
+                            furthestDesc = "At Home"
+                        }
+                    }
+                }
+                
+                val avgAlt = if (altitudes.isNotEmpty()) altitudes.average() else 0.0
+                
+                val stats = JSONObject().apply {
+                    put("uid", friendUid)
+                    put("uniqueNetworks", points.size)
+                    put("uniqueWifi", uniqueWifi)
+                    put("totalConnections", totalConnections)
+                    put("furthestDiscovery", furthestDesc)
+                    put("countries", countries.size)
+                    put("cities", cities.size)
+                    put("minAltitude", minAlt)
+                    put("avgAltitude", avgAlt)
+                    put("maxAltitude", maxAlt)
+                }
+                val b64 = android.util.Base64.encodeToString(
+                    stats.toString().toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP
+                )
+                activity.runOnUiThread {
+                    webView.evaluateJavascript("onFriendStatsReceived(decodeURIComponent(escape(atob('$b64'))))", null)
+                }
+            }
+    }
     @JavascriptInterface
     fun fetchAllFriendPoints() {
         val myUid = auth.currentUser?.uid ?: return
         db.collection("Users").document(myUid).get()
             .addOnSuccessListener { doc ->
-                val friends = (doc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-                if (friends.isEmpty()) {
+                // Parse tiered friendsList (new) with fallback to legacy plain 'friends' array
+                val rawList = doc.get("friendsList") as? List<*> ?: emptyList<Any>()
+                val tieredFriends = rawList.mapNotNull { item ->
+                    when (item) {
+                        is Map<*, *> -> Pair(item["uid"] as? String ?: return@mapNotNull null, item["accessLevel"] as? String ?: "full")
+                        is String -> Pair(item, "full")
+                        else -> null
+                    }
+                }
+                val legacyFriends = (doc.get("friends") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                // For full access friends only
+                val fullAccessFriends = if (tieredFriends.isNotEmpty())
+                    tieredFriends.filter { it.second == "full" }.map { it.first }
+                else legacyFriends
+
+                if (fullAccessFriends.isEmpty()) {
                     activity.runOnUiThread { webView.evaluateJavascript("onFriendPointsLoaded('[]')", null) }
                     return@addOnSuccessListener
                 }
                 
                 val allPoints = JSONArray()
-                var pending = friends.size
+                var pending = fullAccessFriends.size
                 
-                for (friendId in friends) {
+                for (friendId in fullAccessFriends) {
                     db.collection("users").document(friendId).collection("points")
                         .get()
                         .addOnSuccessListener { snapshot ->
@@ -411,7 +593,7 @@ class WebAppInterface(
                                 if (isPrivate) continue
                                 
                                 val data = pDoc.data ?: continue
-                                val pt = org.json.JSONObject(data).apply {
+                                val pt = docDataToJson(data).apply {
                                     put("id", pDoc.id)
                                     put("isFriendPoint", true)
                                     put("ownerId", friendId)
@@ -500,5 +682,59 @@ class WebAppInterface(
     fun isAutoTrackPrivate(): Boolean {
         val prefs = activity.getSharedPreferences("wifimapper_prefs", android.content.Context.MODE_PRIVATE)
         return prefs.getBoolean("autotrack_private", false)
+    }
+
+    @JavascriptInterface
+    fun setMyDefaultPrivacy(level: String) {
+        val myUid = auth.currentUser?.uid ?: return
+        val myRef = db.collection("Users").document(myUid)
+
+        db.runTransaction { tx ->
+            val myDoc = tx.get(myRef)
+            val myFriends = (myDoc.get("friendsList") as? List<*>)?.toMutableList() ?: mutableListOf()
+            if (myFriends.isEmpty()) return@runTransaction null
+
+            val updatedMyFriends = mutableListOf<Map<String, Any>>()
+            
+            for (item in myFriends) {
+                if (item is Map<*, *>) {
+                    val uid = item["uid"] as? String ?: continue
+                    val newEntry = item.toMutableMap()
+                    newEntry["accessLevel"] = level
+                    updatedMyFriends.add(newEntry as Map<String, Any>)
+
+                    val friendRef = db.collection("Users").document(uid)
+                    val friendDoc = tx.get(friendRef)
+                    val theirFriends = (friendDoc.get("friendsList") as? List<*>)?.toMutableList() ?: mutableListOf()
+                    var modified = false
+                    for (i in theirFriends.indices) {
+                        val tItem = theirFriends[i]
+                        if (tItem is Map<*, *>) {
+                            if (tItem["uid"] == myUid) {
+                                val tNewEntry = tItem.toMutableMap()
+                                tNewEntry["accessLevel"] = level
+                                theirFriends[i] = tNewEntry
+                                modified = true
+                                break
+                            }
+                        }
+                    }
+                    if (modified) {
+                        tx.update(friendRef, "friendsList", theirFriends)
+                    }
+                }
+            }
+            tx.update(myRef, "friendsList", updatedMyFriends)
+            null
+        }.addOnSuccessListener {
+            activity.runOnUiThread {
+                fetchFriendData()
+                fetchAllFriendPoints()
+            }
+        }.addOnFailureListener { e ->
+            activity.runOnUiThread {
+                webView.evaluateJavascript("onFriendActionError('Failed to update privacy: ${e.message}')", null)
+            }
+        }
     }
 }

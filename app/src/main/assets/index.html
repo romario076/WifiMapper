@@ -120,12 +120,38 @@
 
                 <!-- Replay Overlay -->
                 <div id="replay-overlay" class="hidden"
-                    style="position: absolute; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(0,0,0,0.8); border: 2px solid var(--teal); border-radius: 20px; padding: 10px 20px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-                    <div style="color: #fff; font-weight: bold; font-size: 0.9rem;" id="replay-status">Playing Route...
-                        (0/0)</div>
-                    <button id="stop-replay-btn"
-                        style="background: var(--danger, #ef4444); color: #fff; border: none; border-radius: 10px; padding: 5px 15px; cursor: pointer; font-weight: bold;">⏹
-                        Stop</button>
+                    style="position: absolute; top: 16px; left: 50%; width: 90%; max-width: 500px; transform: translateX(-50%); z-index: 1000; background: rgba(15,23,42,0.9); border: 2px solid var(--teal); border-radius: 16px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 8px 32px rgba(0,0,0,0.6); backdrop-filter: blur(10px);">
+
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                        <div style="flex: 1; color: #fff;">
+                            <div style="font-size: 0.75rem; color: var(--teal); font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;"
+                                id="replay-step-counter">Route Replay (0/0)</div>
+                            <div style="font-weight: 700; font-size: 1.1rem; margin-top: 2px;" id="replay-location">📍
+                                Unknown</div>
+                            <div style="font-size: 0.85rem; color: var(--slate-light); margin-top: 2px;"
+                                id="replay-date">Date</div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; align-items: flex-end;">
+                            <button id="stop-replay-btn"
+                                style="background: var(--danger, #ef4444); color: #fff; border: none; border-radius: 8px; padding: 6px 12px; cursor: pointer; font-weight: bold; font-size: 0.85rem; width: 100%;">⏹
+                                Stop</button>
+                            <select id="replay-speed-select"
+                                style="background: rgba(255,255,255,0.1); color: #fff; border: 1px solid var(--slate); border-radius: 6px; padding: 4px; font-size: 0.75rem; cursor: pointer;">
+                                <option value="1500" style="color:black;">0.5x (Slow)</option>
+                                <option value="800" selected style="color:black;">1.0x (Normal)</option>
+                                <option value="300" style="color:black;">2.5x (Fast)</option>
+                                <option value="100" style="color:black;">5.0x (Hyper)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 4px;">
+                        <button id="pause-replay-btn"
+                            style="background: var(--teal); color: #000; border: none; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.1rem; flex-shrink: 0;"
+                            title="Pause/Play">⏸</button>
+                        <input type="range" id="replay-scrubber" min="0" max="100" value="0"
+                            style="flex: 1; accent-color: var(--teal); cursor: pointer;">
+                    </div>
                 </div>
                 <!-- Action Bar -->
                 <div
@@ -330,30 +356,34 @@
             <!-- Friends View -->
             <section id="friends-view" class="view">
                 <header class="stats-header">
-                    <h2 style="padding: 2rem 2rem 0;">Friends</h2>
+                    <h2 style="padding: 1.5rem 1.5rem 0; font-size: 1.3rem;">Friends</h2>
                 </header>
-                <div class="glass-panel" style="max-width: 600px; margin: 0 2rem 2rem;">
-                    <div style="margin-bottom: 1.5rem;">
-                        <label>Add Friend (by Email):</label>
-                        <div style="display: flex; gap: 8px;">
+                <div class="glass-panel" style="max-width: 600px; margin: 0 1.5rem 1.5rem; padding: 0.75rem 1rem;">
+                    <div style="margin-bottom: 0.6rem;">
+                        <div
+                            style="font-size: 0.75rem; color: var(--slate-light); margin-bottom: 5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;">
+                            Add Friend</div>
+                        <div style="display: flex; gap: 6px;">
                             <input type="email" id="friend-search-input" class="form-control"
-                                placeholder="friend@gmail.com" style="flex:1;">
-                            <button class="btn primary" id="friend-search-btn">Send Request</button>
+                                placeholder="friend@gmail.com" style="flex:1; padding: 7px 10px; font-size: 0.85rem;">
+                            <button class="btn primary" id="friend-search-btn"
+                                style="padding: 7px 14px; font-size: 0.82rem; white-space: nowrap;">Send</button>
                         </div>
                     </div>
 
                     <div id="friend-requests-container" class="hidden"
-                        style="margin-bottom: 1.5rem; padding-bottom: 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                        <h3 style="font-size: 1rem; color: var(--teal); margin-bottom: 10px;">Friend Requests</h3>
+                        style="margin-bottom: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                        <h3 style="font-size: 0.95rem; color: var(--teal); margin-bottom: 8px;">Friend Requests</h3>
                         <div id="friend-requests-list" style="display:flex; flex-direction:column; gap:10px;">
                             <!-- Populated dynamic -->
                         </div>
                     </div>
 
                     <div>
-                        <h3 style="font-size: 1rem; color: var(--teal); margin-bottom: 10px;">My Friends</h3>
-                        <div id="friends-list" style="display:flex; flex-direction:column; gap:10px;">
-                            <p style="color:var(--slate-light); font-size:0.9rem;">Adding friends will allow you to
+                        <h3 style="font-size: 0.95rem; color: var(--teal); margin-bottom: 8px;">My Friends</h3>
+                        <div id="friends-list" style="display:flex; flex-direction:column; gap:8px;">
+                            <p style="color:var(--slate-light); font-size:0.85rem; line-height: 1.3; margin:0;">Adding
+                                friends will allow you to
                                 share network points. Search their Google login email above to send a request.</p>
                         </div>
                     </div>
@@ -362,131 +392,203 @@
 
             <!-- Info View -->
             <section id="info-view" class="view">
-                <div style="padding: 1.5rem 1rem 0;">
+                <div style="padding: 1.5rem 1rem 0.5rem;">
                     <h2
-                        style="font-size: 1.8rem; font-weight: 800; letter-spacing: -0.5px; filter: drop-shadow(0 0 12px rgba(20,184,166,0.35));">
-                        About WiFi Mapper <span style="font-size: 1.5rem;">🌍</span>
+                        style="font-size: 1.7rem; font-weight: 800; letter-spacing: -0.5px; filter: drop-shadow(0 0 12px rgba(20,184,166,0.35));">
+                        WiFi Mapper <span style="font-size: 1.4rem;">🌍</span>
                     </h2>
-                    <p style="color: var(--slate-light); font-size: 0.95rem; margin-top: 6px; line-height: 1.6;">
-                        Your personal digital map of every connected place on Earth.
+                    <p style="color: var(--slate-light); font-size: 0.88rem; margin-top: 4px; line-height: 1.5;">
+                        Your personal atlas of the connected world — built automatically, every day.
                     </p>
                 </div>
 
-                <!-- Hero tagline -->
+                <!-- Hero -->
                 <div class="glass-panel"
-                    style="margin: 1rem; background: linear-gradient(135deg, rgba(20,184,166,0.12) 0%, rgba(99,102,241,0.12) 100%); border: 1px solid rgba(20,184,166,0.25); text-align: center; padding: 1.5rem 1.2rem;">
-                    <p style="font-size: 1.1rem; font-weight: 600; color: #fff; line-height: 1.7; margin: 0;">
-                        Every Wi-Fi network you join is a story.<br>
+                    style="margin: 0.75rem 1rem; background: linear-gradient(135deg, rgba(20,184,166,0.13) 0%, rgba(99,102,241,0.13) 100%); border: 1px solid rgba(20,184,166,0.3); text-align: center; padding: 1.2rem 1rem;">
+                    <p style="font-size: 1rem; font-weight: 600; color: #fff; line-height: 1.7; margin: 0;">
+                        Every Wi-Fi you connect to is a moment in time.<br>
                         <span style="color: var(--teal);">WiFi Mapper</span> turns those moments into
-                        <span style="color: #818cf8;">a beautiful living map</span> — built automatically, without any
-                        effort.
+                        <span style="color: #818cf8;">a beautiful, living story</span> of everywhere you've been.
                     </p>
                 </div>
 
-                <!-- Feature Cards grid -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0 1rem 1rem;">
-                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #14b8a6;">
-                        <div style="font-size: 1.6rem; margin-bottom: 6px;">⚡</div>
-                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Live
-                            Auto-Track</strong>
-                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
-                            Connects in the background every time you join a new Wi-Fi — even when the app is closed.
-                        </p>
-                    </div>
-                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #818cf8;">
-                        <div style="font-size: 1.6rem; margin-bottom: 6px;">🔕</div>
-                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Silent
-                            Mode</strong>
-                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
-                            Track quietly without popups. Points are collected in the background with no interruptions.
-                        </p>
-                    </div>
-                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #3b82f6;">
-                        <div style="font-size: 1.6rem; margin-bottom: 6px;">🏔️</div>
-                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Altitude
-                            Tracking</strong>
-                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
-                            Captures elevation for each point using GPS — no internet download needed. Instant.
-                        </p>
-                    </div>
-                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #f59e0b;">
-                        <div style="font-size: 1.6rem; margin-bottom: 6px;">📊</div>
-                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Smart
-                            Statistics</strong>
-                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
-                            Altitude overview, dynamic histogram and your last 10 visits — all in one crisp dashboard.
-                        </p>
-                    </div>
-                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #10b981;">
-                        <div style="font-size: 1.6rem; margin-bottom: 6px;">☁️</div>
-                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">Cloud
-                            Sync</strong>
-                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
-                            All your data is live-synced to Firebase Firestore. Sign in anywhere, your map follows.
-                        </p>
-                    </div>
-                    <div class="glass-panel" style="margin:0; padding: 1rem; border-left: 3px solid #ec4899;">
-                        <div style="font-size: 1.6rem; margin-bottom: 6px;">🔄</div>
-                        <strong style="color: #fff; font-size: 0.95rem; display: block; margin-bottom: 4px;">History &
-                            Reconnects</strong>
-                        <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
-                            Know when you returned to a familiar place and trace your full connection timeline.
-                        </p>
+                <!-- Core Features Grid -->
+                <div style="margin: 0 1rem 1rem;">
+                    <h4
+                        style="color: var(--slate-light); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">
+                        ⚡ Core Features</h4>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <div class="glass-panel" style="margin:0; padding: 0.9rem; border-left: 3px solid #14b8a6;">
+                            <div style="font-size: 1.4rem; margin-bottom: 4px;">⚡</div>
+                            <strong
+                                style="color: #fff; font-size: 0.88rem; display: block; margin-bottom: 3px;">Auto-Track</strong>
+                            <p style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 0;">Maps
+                                every Wi-Fi silently in the background — even when the app is closed.</p>
+                        </div>
+                        <div class="glass-panel" style="margin:0; padding: 0.9rem; border-left: 3px solid #818cf8;">
+                            <div style="font-size: 1.4rem; margin-bottom: 4px;">📍</div>
+                            <strong style="color: #fff; font-size: 0.88rem; display: block; margin-bottom: 3px;">Manual
+                                Check-in</strong>
+                            <p style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 0;">Pin
+                                any place — even on cellular — with one tap of Register Network.</p>
+                        </div>
+                        <div class="glass-panel" style="margin:0; padding: 0.9rem; border-left: 3px solid #3b82f6;">
+                            <div style="font-size: 1.4rem; margin-bottom: 4px;">🏔️</div>
+                            <strong
+                                style="color: #fff; font-size: 0.88rem; display: block; margin-bottom: 3px;">Altitude &
+                                GPS</strong>
+                            <p style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 0;">Every
+                                point includes GPS elevation. Discover your highest and lowest spots.</p>
+                        </div>
+                        <div class="glass-panel" style="margin:0; padding: 0.9rem; border-left: 3px solid #10b981;">
+                            <div style="font-size: 1.4rem; margin-bottom: 4px;">☁️</div>
+                            <strong style="color: #fff; font-size: 0.88rem; display: block; margin-bottom: 3px;">Cloud
+                                Sync</strong>
+                            <p style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 0;">Your
+                                map lives in the cloud. Switch devices — everything follows you.</p>
+                        </div>
                     </div>
                 </div>
 
-                <!-- How to use quick guide -->
-                <div class="glass-panel" style="margin: 0 1rem 1rem; padding: 1.2rem;">
+                <!-- Analytics Features -->
+                <div style="margin: 0 1rem 1rem;">
                     <h4
-                        style="color: var(--teal); font-size: 1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.07); padding-bottom: 0.5rem;">
-                        🚀 Getting Started in 3 steps
+                        style="color: var(--slate-light); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">
+                        📊 Analytics & Insights</h4>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px;">
+                            <span style="font-size:1.5rem; line-height:1;">📊</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Statistics Dashboard</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    Countries visited, unique cities, total networks, altitude history — all in one
+                                    place. Filter by date range.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px;">
+                            <span style="font-size:1.5rem; line-height:1;">🎬</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Journey Animation</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    Replay your travel history chronologically on the map. Pause, scrub, and watch your
+                                    journey unfold step by step.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px;">
+                            <span style="font-size:1.5rem; line-height:1;">🏠</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Farthest Point from Home</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    Set your home location. The app tracks which registered point is the farthest you've
+                                    ever been from it.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Social Features -->
+                <div style="margin: 0 1rem 1rem;">
+                    <h4
+                        style="color: var(--slate-light); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">
+                        👥 Social & Privacy</h4>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px; border-left: 3px solid var(--teal);">
+                            <span style="font-size:1.5rem; line-height:1;">🗺️</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Full Access Friends</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    See each other's network points on the map. Compare places you've both been and
+                                    discover new spots together.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px; border-left: 3px solid #818cf8;">
+                            <span style="font-size:1.5rem; line-height:1;">📊</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Stats-Only Friends</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    Share just your summary stats — countries, cities, altitude, connections — without
+                                    revealing exact locations.</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px; border-left: 3px solid #f59e0b;">
+                            <span style="font-size:1.5rem; line-height:1;">⚡</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Route Crossings</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    Enable crossings on the map to see which Wi-Fi networks you and your friends both
+                                    discovered — with who was first!</p>
+                            </div>
+                        </div>
+                        <div class="glass-panel"
+                            style="margin:0; padding: 0.9rem 1rem; display:flex; align-items:flex-start; gap:12px; border-left: 3px solid #ec4899;">
+                            <span style="font-size:1.5rem; line-height:1;">🔒</span>
+                            <div>
+                                <strong style="color: #fff; font-size: 0.88rem;">Your Privacy, Your Choice</strong>
+                                <p
+                                    style="color: var(--slate-light); font-size: 0.78rem; line-height: 1.4; margin: 4px 0 0;">
+                                    In the Friends tab → My Privacy, choose globally what you share with all friends.
+                                    Change individual friend access with the 🔑 button anytime.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Getting Started -->
+                <div class="glass-panel" style="margin: 0 1rem 1rem; padding: 1rem;">
+                    <h4
+                        style="color: var(--teal); font-size: 0.92rem; margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.07); padding-bottom: 8px;">
+                        🚀 Quick Start
                     </h4>
                     <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="display: flex; align-items: flex-start; gap: 10px;">
                             <div
-                                style="background: rgba(20,184,166,0.15); color: var(--teal); font-size: 0.8rem; font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(20,184,166,0.3);">
+                                style="background: rgba(20,184,166,0.15); color: var(--teal); font-size: 0.75rem; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(20,184,166,0.3);">
                                 1</div>
-                            <div>
-                                <strong style="color: #fff; font-size: 0.9rem;">Sign in with Google</strong>
-                                <p style="color: var(--slate-light); font-size: 0.82rem; margin: 2px 0 0;">Your map is
-                                    tied to your account and synced automatically.</p>
-                            </div>
+                            <div><strong style="color: #fff; font-size: 0.85rem;">Sign in with Google</strong><br><span
+                                    style="color: var(--slate-light); font-size: 0.78rem;">Your map is tied to your
+                                    account and syncs automatically.</span></div>
                         </div>
-                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="display: flex; align-items: flex-start; gap: 10px;">
                             <div
-                                style="background: rgba(99,102,241,0.15); color: #818cf8; font-size: 0.8rem; font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.3);">
+                                style="background: rgba(99,102,241,0.15); color: #818cf8; font-size: 0.75rem; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(99,102,241,0.3);">
                                 2</div>
-                            <div>
-                                <strong style="color: #fff; font-size: 0.9rem;">Enable Auto-Track in Settings</strong>
-                                <p style="color: var(--slate-light); font-size: 0.82rem; margin: 2px 0 0;">Grant "Allow
-                                    all the time" location permission for best results.</p>
-                            </div>
+                            <div><strong style="color: #fff; font-size: 0.85rem;">Enable Auto-Track in
+                                    Settings</strong><br><span
+                                    style="color: var(--slate-light); font-size: 0.78rem;">Grant "Allow all the time"
+                                    location permission for best results.</span></div>
                         </div>
-                        <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <div style="display: flex; align-items: flex-start; gap: 10px;">
                             <div
-                                style="background: rgba(245,158,11,0.15); color: #f59e0b; font-size: 0.8rem; font-weight: 700; min-width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(245,158,11,0.3);">
+                                style="background: rgba(245,158,11,0.15); color: #f59e0b; font-size: 0.75rem; font-weight: 700; min-width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(245,158,11,0.3);">
                                 3</div>
-                            <div>
-                                <strong style="color: #fff; font-size: 0.9rem;">Live your life — the map builds
-                                    itself</strong>
-                                <p style="color: var(--slate-light); font-size: 0.82rem; margin: 2px 0 0;">Or pin points
-                                    manually any time by tapping "Register Network".</p>
-                            </div>
+                            <div><strong style="color: #fff; font-size: 0.85rem;">Add friends in the Friends
+                                    tab</strong><br><span style="color: var(--slate-light); font-size: 0.78rem;">Search
+                                    by email, set access level, and explore together.</span></div>
                         </div>
                     </div>
                 </div>
 
-                <div class="glass-panel" style="margin: 0 1rem 1.5rem; padding: 1.5rem;">
-                    <h3
-                        style="margin-top: 0; color: var(--teal); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
-                        <span>🤖</span> Auto-Track Smart Filter
-                    </h3>
-                    <p style="color: var(--slate-light); font-size: 0.9rem; line-height: 1.5; margin-bottom: 0;">
-                        When <strong>Auto-Track</strong> is enabled, WiFi Mapper works silently in the background. To
-                        prevent database spam (e.g., from frequent brief disconnects), it uses a <strong>smart
-                            cooldown</strong>. If you reconnect to the exact same network within <strong
-                            id="info-cooldown-text">1 hour</strong> (configurable in Settings), the
-                        connection is ignored. This keeps your timeline clean and saves battery.
+                <!-- Auto-track info -->
+                <div class="glass-panel" style="margin: 0 1rem 1.5rem; padding: 1rem;">
+                    <h4
+                        style="color: var(--teal); font-size: 0.92rem; margin: 0 0 8px 0; display:flex; align-items:center; gap:8px;">
+                        🤖 Anti-Spam Smart Filter</h4>
+                    <p style="color: var(--slate-light); font-size: 0.82rem; line-height: 1.5; margin: 0;">
+                        Auto-Track uses a configurable cooldown — if you reconnect to the same network within <strong
+                            id="info-cooldown-text">1 hour</strong>, the connection is silently ignored. This keeps your
+                        map clean and precise.
                     </p>
                 </div>
 
@@ -501,7 +603,7 @@
                         style="color: var(--teal); text-decoration: none; font-size: 0.85rem; margin-top: 6px; display: inline-block;">romario076@yahoo.com</a>
                     <br>
                     <a href="https://www.linkedin.com/in/roman-melnyk-690689b8" target="_blank"
-                        style="display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 16px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 20px; color: #60a5fa; text-decoration: none; font-size: 0.85rem; font-weight: 600; transition: all 0.2s;">
+                        style="display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; padding: 6px 16px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); border-radius: 20px; color: #60a5fa; text-decoration: none; font-size: 0.85rem; font-weight: 600;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                             <path
                                 d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
@@ -510,6 +612,11 @@
                     </a>
                 </div>
             </section>
+
+
+
+
+
 
             <!-- Stats View -->
             <section id="stats-view" class="view">
@@ -522,52 +629,9 @@
 
                     <!-- COMPACT METRICS RIBBON -->
                     <div class="glass-panel" style="margin-bottom: 0.5rem; padding: 10px 12px;">
-                        <!-- Row 1: Connections -->
+                        <!-- Row 1: Altitude Summary -->
                         <div
-                            style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.07);">
-                            <div
-                                style="display: flex; align-items: center; gap: 8px; flex: 1; background: rgba(99,102,241,0.08); border-radius: 10px; padding: 8px 12px;">
-                                <span style="font-size: 1.4rem; line-height: 1;">🌍</span>
-                                <div>
-                                    <div
-                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase; letter-spacing: 0.5px;">
-                                        Total Connections</div>
-                                    <div id="total-connections-val"
-                                        style="font-size: 1.2rem; font-weight: 700; color: #818cf8; line-height: 1.2;">0
-                                    </div>
-                                </div>
-                            </div>
-                            <div
-                                style="display: flex; align-items: center; gap: 8px; flex: 1; background: rgba(20,184,166,0.08); border-radius: 10px; padding: 8px 12px;">
-                                <span style="font-size: 1.4rem; line-height: 1;">📍</span>
-                                <div>
-                                    <div
-                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase; letter-spacing: 0.5px;">
-                                        Unique Networks</div>
-                                    <div id="unique-connections-val"
-                                        style="font-size: 1.2rem; font-weight: 700; color: var(--teal); line-height: 1.2;">
-                                        0</div>
-                                </div>
-                            </div>
-                            <div
-                                style="display: flex; align-items: center; gap: 8px; flex: 100%; background: rgba(234,179,8,0.08); border-radius: 10px; padding: 8px 12px;">
-                                <span style="font-size: 1.6rem; line-height: 1;">🚀</span>
-                                <div style="flex: 1;">
-                                    <div
-                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase; letter-spacing: 0.5px;">
-                                        Furthest Discovery</div>
-                                    <div id="furthest-point-val"
-                                        style="font-size: 1.1rem; font-weight: 700; color: #eab308; line-height: 1.2;">
-                                        No Home Set</div>
-                                    <div id="furthest-point-desc"
-                                        style="font-size: 0.75rem; color: var(--slate-light); margin-top:2px;">
-                                        Tap any of your pins on the map to "Set as Home"
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Row 2: Altitude overview in one line -->
-                        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.07);">
                             <span
                                 style="font-size: 0.8rem; color: var(--slate-light); white-space: nowrap; width: 100%; margin-bottom: 4px;">🏔️
                                 Altitude Summary</span>
@@ -581,29 +645,90 @@
                                         0m</div>
                                 </div>
                                 <div
-                                    style="flex:1; text-align:center; background:rgba(16,185,129,0.1); border-radius:8px; padding:5px 4px;">
-                                    <div style="font-size:0.65rem; color:var(--slate-light); text-transform:uppercase;">
+                                    style="flex:1; text-align:center; background:rgba(16,185,129,0.1); border-radius:8px; padding:5px 2px;">
+                                    <div style="font-size:0.6rem; color:var(--slate-light); text-transform:uppercase;">
                                         Avg</div>
                                     <div id="alt-avg-val"
-                                        style="font-size:1rem; font-weight:700; color:#10b981; white-space:nowrap;">0m
-                                    </div>
+                                        style="font-size:0.95rem; font-weight:700; color:#10b981; white-space:nowrap;">
+                                        0m</div>
                                 </div>
                                 <div
-                                    style="flex:1; text-align:center; background:rgba(245,158,11,0.1); border-radius:8px; padding:5px 4px;">
-                                    <div style="font-size:0.65rem; color:var(--slate-light); text-transform:uppercase;">
-                                        Median</div>
-                                    <div id="alt-median-val"
-                                        style="font-size:1rem; font-weight:700; color:#f59e0b; white-space:nowrap;">0m
-                                    </div>
-                                </div>
-                                <div
-                                    style="flex:1; text-align:center; background:rgba(239,68,68,0.1); border-radius:8px; padding:5px 4px;">
-                                    <div style="font-size:0.65rem; color:var(--slate-light); text-transform:uppercase;">
+                                    style="flex:1; text-align:center; background:rgba(239,68,68,0.1); border-radius:8px; padding:5px 2px;">
+                                    <div style="font-size:0.6rem; color:var(--slate-light); text-transform:uppercase;">
                                         Max</div>
                                     <div id="alt-max-val"
-                                        style="font-size:1rem; font-weight:700; color:#ef4444; white-space:nowrap;">0m
-                                    </div>
+                                        style="font-size:0.95rem; font-weight:700; color:#ef4444; white-space:nowrap;">
+                                        0m</div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Connections & Unique Locations -->
+                        <div
+                            style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.07);">
+                            <div
+                                style="display: flex; align-items: center; gap: 8px; flex: 1; background: rgba(99,102,241,0.08); border-radius: 10px; padding: 8px 12px;">
+                                <span style="font-size: 1.4rem; line-height: 1;">🌍</span>
+                                <div>
+                                    <div
+                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase;">
+                                        Total Connections</div>
+                                    <div id="total-connections-val"
+                                        style="font-size: 1.2rem; font-weight: 700; color: #818cf8;">0</div>
+                                </div>
+                            </div>
+                            <div
+                                style="display: flex; align-items: center; gap: 8px; flex: 1; background: rgba(20,184,166,0.08); border-radius: 10px; padding: 8px 12px;">
+                                <span style="font-size: 1.4rem; line-height: 1;">📍</span>
+                                <div>
+                                    <div
+                                        style="font-size: 0.7rem; color: var(--slate-light); text-transform: uppercase;">
+                                        Unique locations</div>
+                                    <div id="unique-connections-val"
+                                        style="font-size: 1.2rem; font-weight: 700; color: var(--teal);">0</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 3: Countries, Unique Cities, Unique WiFi -->
+                        <div
+                            style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.07);">
+                            <div
+                                style="text-align: center; background: rgba(16,185,129,0.08); border-radius: 10px; padding: 8px 4px;">
+                                <div style="font-size: 0.6rem; color: var(--slate-light); text-transform: uppercase;">
+                                    Countries</div>
+                                <div id="unique-countries-val"
+                                    style="font-size: 1.1rem; font-weight: 700; color: #10b981;">0</div>
+                            </div>
+                            <div
+                                style="text-align: center; background: rgba(139,92,246,0.08); border-radius: 10px; padding: 8px 4px;">
+                                <div style="font-size: 0.6rem; color: var(--slate-light); text-transform: uppercase;">
+                                    Unique Cities</div>
+                                <div id="unique-cities-val"
+                                    style="font-size: 1.1rem; font-weight: 700; color: #8b5cf6;">0</div>
+                            </div>
+                            <div
+                                style="text-align: center; background: rgba(59,130,246,0.08); border-radius: 10px; padding: 8px 4px;">
+                                <div style="font-size: 0.6rem; color: var(--slate-light); text-transform: uppercase;">
+                                    Unique WiFi</div>
+                                <div id="unique-wifi-val" style="font-size: 1.1rem; font-weight: 700; color: #3b82f6;">0
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 4: Furthest Discovery -->
+                        <div
+                            style="display: flex; align-items: center; gap: 8px; background: rgba(234,179,8,0.08); border-radius: 10px; padding: 8px 10px; min-width: 0;">
+                            <span style="font-size: 1.2rem; line-height: 1; flex-shrink:0;">🚀</span>
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="font-size: 0.6rem; color: var(--slate-light); text-transform: uppercase;">
+                                    Furthest Discovery</div>
+                                <div id="furthest-point-val"
+                                    style="font-size: 0.95rem; font-weight: 700; color: #eab308; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    No Home Set</div>
+                                <div id="furthest-point-desc"
+                                    style="font-size: 0.65rem; color: var(--slate-light); margin-top:1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    Set a Home point on the map</div>
                             </div>
                         </div>
                     </div>

@@ -191,51 +191,248 @@ window.onFriendActionError = function (errorMsg) {
     customAlert(errorMsg);
 };
 
-window.showFriendStats = async function (uid) {
-    if (!window.friendWifiPoints) return;
-    const profile = window.lastFriendProfiles[uid] || { displayName: 'Friend', email: '', photoUrl: '' };
-    const pts = window.friendWifiPoints.filter(p => String(p.ownerId) === String(uid));
-
-    let totalConnections = 0;
-    const ssidCounts = {};
-
-    pts.forEach(p => {
-        totalConnections += (Number(p.connections) || 1);
-        if (p.ssid) ssidCounts[p.ssid] = (ssidCounts[p.ssid] || 0) + 1;
-    });
-
-    let topSsid = 'N/A';
-    let maxSsid = 0;
-    for (const [s, count] of Object.entries(ssidCounts)) {
-        if (count > maxSsid) {
-            maxSsid = count;
-            topSsid = s;
-        }
-    }
-
-    await customAlert(`
-        <div style="text-align:center; padding:10px;">
-            ${profile.photoUrl ? `<img src="${profile.photoUrl}" style="width:64px; height:64px; border-radius:50%; margin-bottom:10px; border:2px solid var(--teal);">` : '<span style="font-size:40px;">👤</span>'}
-            <h3 style="color:var(--teal); margin:0;">${profile.displayName}</h3>
-            <p style="color:var(--slate-light); font-size:0.85rem; margin:5px 0 20px 0;">${profile.email}</p>
-            
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:left;">
-                <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
-                    <div style="font-size:0.75rem; color:var(--teal);">Public Points</div>
-                    <b style="font-size:1.3rem; color:var(--text-color);">${pts.length}</b>
-                </div>
-                <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:8px;">
-                    <div style="font-size:0.75rem; color:var(--teal);">Total Connections</div>
-                    <b style="font-size:1.3rem; color:var(--text-color);">${totalConnections}</b>
-                </div>
+// Show modal to select access level when accepting a friend request
+window.showAcceptModal = function (friendUid) {
+    const modal = document.createElement('div');
+    modal.id = 'accept-friend-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:var(--bg-panel,#1e293b);padding:24px;border-radius:16px;max-width:320px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+            <h3 style="color:var(--teal);margin:0 0 8px 0;">Accept Friend Request</h3>
+            <p style="color:var(--slate-light);font-size:0.85rem;margin:0 0 20px 0;">Choose what access to grant this friend:</p>
+            <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px;">
+                <button id="accept-full-btn" style="background:rgba(20,184,166,0.15);border:1px solid var(--teal);padding:12px;border-radius:10px;color:var(--text-color,#f1f5f9);font-size:0.9rem;text-align:left;cursor:pointer;">
+                    🗺️ <b>Full Access</b><br><span style="font-size:0.78rem;color:var(--slate-light);">See each other's Wi-Fi points on the map + full statistics</span>
+                </button>
+                <button id="accept-stats-btn" style="background:rgba(99,102,241,0.15);border:1px solid #818cf8;padding:12px;border-radius:10px;color:var(--text-color,#f1f5f9);font-size:0.9rem;text-align:left;cursor:pointer;">
+                    📊 <b>Stats Only</b><br><span style="font-size:0.78rem;color:var(--slate-light);">Share only summary statistics — no map points visible</span>
+                </button>
             </div>
-            
-            <div style="background:rgba(255,255,255,0.05); padding:12px; border-radius:8px; text-align:left; margin-top:10px;">
-                <div style="font-size:0.75rem; color:var(--teal);">Most Frequent Network</div>
-                <b style="font-size:1.1rem; color:var(--text-color);">${topSsid}</b>
+            <button id="cancel-accept-btn" style="background:transparent;border:1px solid rgba(255,255,255,0.1);color:var(--slate-light);width:100%;padding:8px;border-radius:8px;cursor:pointer;">Cancel</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('accept-full-btn').onclick = () => {
+        modal.remove();
+        if (window.Android) window.Android.acceptFriendRequest(friendUid, 'full');
+    };
+    document.getElementById('accept-stats-btn').onclick = () => {
+        modal.remove();
+        if (window.Android) window.Android.acceptFriendRequest(friendUid, 'stats');
+    };
+    document.getElementById('cancel-accept-btn').onclick = () => modal.remove();
+};
+
+// Change access level — clean radio-button UI
+window.showChangeAccessModal = function (friendUid, currentLevel) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:var(--bg-panel,#1e293b);padding:24px;border-radius:16px;max-width:310px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+            <h3 style="color:var(--teal);margin:0 0 4px 0;font-size:1rem;">Access Level</h3>
+            <p style="color:var(--slate-light);font-size:0.8rem;margin:0 0 18px 0;">Choose what to share with this friend:</p>
+            <label style="display:flex;align-items:flex-start;gap:12px;background:rgba(20,184,166,0.08);border:1px solid ${currentLevel === 'full' ? 'var(--teal)' : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:12px;cursor:pointer;margin-bottom:10px;">
+                <input type="radio" name="access-level" value="full" ${currentLevel === 'full' ? 'checked' : ''} style="margin-top:3px;accent-color:var(--teal);">
+                <div>
+                    <div style="font-weight:600;font-size:0.9rem;">🗺️ Full Access</div>
+                    <div style="font-size:0.75rem;color:var(--slate-light);margin-top:2px;">Map points + full statistics visible to each other</div>
+                </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:12px;background:rgba(99,102,241,0.08);border:1px solid ${currentLevel === 'stats' ? '#818cf8' : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:12px;cursor:pointer;margin-bottom:18px;">
+                <input type="radio" name="access-level" value="stats" ${currentLevel === 'stats' ? 'checked' : ''} style="margin-top:3px;accent-color:#818cf8;">
+                <div>
+                    <div style="font-weight:600;font-size:0.9rem;">📊 Stats Only</div>
+                    <div style="font-size:0.75rem;color:var(--slate-light);margin-top:2px;">Only aggregated statistics — no map points shared</div>
+                </div>
+            </label>
+            <div style="display:flex;gap:8px;">
+                <button id="change-access-cancel" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,0.1);color:var(--slate-light);padding:10px;border-radius:8px;cursor:pointer;">Cancel</button>
+                <button id="change-access-save" style="flex:1;background:var(--teal);color:#fff;border:none;padding:10px;border-radius:8px;cursor:pointer;font-weight:600;">Save</button>
             </div>
         </div>
-    `);
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('change-access-save').onclick = () => {
+        const selected = modal.querySelector('input[name="access-level"]:checked')?.value || currentLevel;
+        modal.remove();
+        if (selected !== currentLevel && window.Android && window.Android.updateFriendAccess) {
+            window.Android.updateFriendAccess(friendUid, selected);
+        }
+    };
+    document.getElementById('change-access-cancel').onclick = () => modal.remove();
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+};
+
+// Callback: friend stats received from Android
+window._friendStatsCache = {};
+window.onFriendStatsReceived = function (jsonStr) {
+    try {
+        const stats = JSON.parse(jsonStr);
+        window._friendStatsCache[stats.uid] = stats;
+        renderFriendStatsCards();
+    } catch (e) { console.error('onFriendStatsReceived error', e); }
+};
+
+function renderFriendStatsCards() {
+    const container = document.getElementById('friends-stats-cards');
+    if (!container) return;
+    const entries = Object.entries(window._friendStatsCache);
+    if (entries.length === 0) { container.innerHTML = ''; return; }
+    container.innerHTML = entries.map(([uid, stats]) => {
+        const p = (window.lastFriendProfiles || {})[uid] || { displayName: 'Friend', photoUrl: '', accessLevel: 'full' };
+        const img = p.photoUrl ? `<img src="${p.photoUrl}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;">` : '👤';
+        const badge = p.accessLevel === 'full' ? `<span style="font-size:0.6rem;background:rgba(20,184,166,0.2);color:var(--teal);padding:1px 5px;border-radius:3px;">🗺️Full</span>` : `<span style="font-size:0.6rem;background:rgba(99,102,241,0.2);color:#818cf8;padding:1px 5px;border-radius:3px;">📊Stats</span>`;
+        return `<div style="background:rgba(255,255,255,0.04);border-radius:10px;padding:10px 12px;">
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;">
+                ${img}
+                <span style="font-weight:600;font-size:0.85rem;">${p.displayName}</span>
+                ${badge}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:4px;font-size:0.72rem;text-align:center;">
+                <div style="background:rgba(20,184,166,0.07);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Countries</div><b style="color:var(--teal);">${stats.countries}</b></div>
+                <div style="background:rgba(139,92,246,0.07);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Cities</div><b style="color:#8b5cf6;">${stats.cities}</b></div>
+                <div style="background:rgba(99,102,241,0.07);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Locations</div><b style="color:#818cf8;">${stats.uniqueNetworks}</b></div>
+                <div style="background:rgba(59,130,246,0.07);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">WiFi</div><b style="color:#3b82f6;">${stats.uniqueWifi || 0}</b></div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-bottom:4px;font-size:0.72rem;text-align:center;">
+                <div style="background:rgba(255,255,255,0.04);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Conns</div><b>${stats.totalConnections}</b></div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Min Alt</div><b>${Math.round(stats.minAltitude)}m</b></div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Avg Alt</div><b>${stats.avgAltitude !== undefined ? Math.round(stats.avgAltitude) + 'm' : '—'}</b></div>
+                <div style="background:rgba(255,255,255,0.04);border-radius:5px;padding:4px 2px;"><div style="color:var(--slate-light);font-size:0.58rem;">Max Alt</div><b>${Math.round(stats.maxAltitude)}m</b></div>
+            </div>
+            <div style="background:rgba(234,179,8,0.07);border-radius:5px;padding:5px 8px;display:flex;align-items:center;gap:6px;">
+                <span style="font-size:1rem;">🚀</span>
+                <div style="min-width:0;">
+                    <div style="color:var(--slate-light);font-size:0.58rem;text-transform:uppercase;">Furthest Discovery</div>
+                    <div style="color:#eab308;font-size:0.72rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${stats.furthestDiscovery || 'No Home Set'}</div>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+// ─── My Privacy Block ─────────────────────────────────────────────────────────
+window._myDefaultAccessLevel = localStorage.getItem('myDefaultAccessLevel') || 'full';
+
+function renderMyPrivacyBlock() {
+    const existing = document.getElementById('my-privacy-block');
+    const anchor = document.getElementById('friend-requests-container') || document.getElementById('friends-stats-cards');
+    if (!anchor && !existing) return;
+    const section = anchor?.closest('section') || existing?.closest('section');
+    if (!section) return;
+
+    if (!existing) {
+        const block = document.createElement('div');
+        block.id = 'my-privacy-block';
+        block.style.cssText = 'margin-bottom:0.75rem;padding-bottom:0.75rem;border-bottom:1px solid rgba(255,255,255,0.08);';
+        section.insertBefore(block, section.firstChild);
+    }
+    const level = window._myDefaultAccessLevel;
+    document.getElementById('my-privacy-block').innerHTML = `
+        <div style="margin-bottom:6px;">
+            <h4 style="font-size:0.88rem;color:var(--teal);margin:0 0 2px 0;">🔒 My Privacy</h4>
+            <p style="font-size:0.7rem;color:var(--slate-light);margin:0 0 6px 0;">What do you share with friends</p>
+        </div>
+        <div style="display:flex;gap:8px;">
+            <label style="flex:1;display:flex;align-items:center;gap:8px;background:rgba(20,184,166,${level === 'full' ? '0.12' : '0.04'});border:1px solid ${level === 'full' ? 'var(--teal)' : 'rgba(255,255,255,0.08)'};border-radius:8px;padding:8px 10px;cursor:pointer;">
+                <input type="radio" name="my-privacy" value="full" ${level === 'full' ? 'checked' : ''} style="accent-color:var(--teal);" onchange="window.setMyDefaultAccess('full')">
+                <div><div style="font-size:0.8rem;font-weight:600;">🗺️ Full</div><div style="font-size:0.68rem;color:var(--slate-light);">Map + Stats</div></div>
+            </label>
+            <label style="flex:1;display:flex;align-items:center;gap:8px;background:rgba(99,102,241,${level === 'stats' ? '0.12' : '0.04'});border:1px solid ${level === 'stats' ? '#818cf8' : 'rgba(255,255,255,0.08)'};border-radius:8px;padding:8px 10px;cursor:pointer;">
+                <input type="radio" name="my-privacy" value="stats" ${level === 'stats' ? 'checked' : ''} style="accent-color:#818cf8;" onchange="window.setMyDefaultAccess('stats')">
+                <div><div style="font-size:0.8rem;font-weight:600;">📊 Stats Only</div><div style="font-size:0.68rem;color:var(--slate-light);">No map points</div></div>
+            </label>
+        </div>`;
+}
+
+window.setMyDefaultAccess = function (level) {
+    window._myDefaultAccessLevel = level;
+    localStorage.setItem('myDefaultAccessLevel', level);
+    renderMyPrivacyBlock();
+    if (window.Android && window.Android.setMyDefaultPrivacy) {
+        window.Android.setMyDefaultPrivacy(level);
+    }
+};
+
+
+
+window.showFriendStats = function (uid) {
+    const cachedStats = (window._friendStatsCache || {})[uid];
+    const profile = (window.lastFriendProfiles || {})[uid] || { displayName: 'Friend', email: '', photoUrl: '' };
+    const pts = (window.friendWifiPoints || []).filter(p => String(p.ownerId) === String(uid));
+
+    // Merge live map points with cached server stats
+    const countries = cachedStats ? cachedStats.countries : new Set(pts.map(p => p.country).filter(Boolean)).size;
+    const cities = cachedStats ? cachedStats.cities : new Set(pts.map(p => p.city).filter(Boolean)).size;
+    const networks = cachedStats ? cachedStats.uniqueNetworks : pts.length;
+    const uniqueWifi = cachedStats ? (cachedStats.uniqueWifi || 0) : pts.filter(p => !p.networkType || p.networkType === 'wifi').length;
+    const conns = cachedStats ? cachedStats.totalConnections : pts.reduce((s, p) => s + (Number(p.connections) || 1), 0);
+    const minAlt = cachedStats ? Math.round(cachedStats.minAltitude) : '—';
+    const avgAlt = cachedStats ? (cachedStats.avgAltitude !== undefined ? Math.round(cachedStats.avgAltitude) + 'm' : '—') : '—';
+    const maxAlt = cachedStats ? Math.round(cachedStats.maxAltitude) : '—';
+    const furthestDesc = cachedStats ? (cachedStats.furthestDiscovery || 'No Home Set') : (wifiPoints.find(h => h.isHome) ? 'Available via Cloud UI' : 'No Home Set');
+
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.75);z-index:10000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:var(--bg-panel,#1e293b);padding:16px;border-radius:16px;max-width:340px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+            <div style="text-align:center;margin-bottom:10px;">
+                ${profile.photoUrl ? `<img src="${profile.photoUrl}" style="width:44px;height:44px;border-radius:50%;border:2px solid var(--teal);object-fit:cover;">` : '<span style="font-size:32px;">👤</span>'}
+                <div style="font-weight:700;font-size:0.92rem;margin-top:5px;">${profile.displayName}</div>
+                <div style="font-size:0.7rem;color:var(--slate-light);">${profile.email}</div>
+            </div>
+            <!-- Row 1: Countries · Cities · Locations -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;margin-bottom:5px;">
+                <div style="text-align:center;background:rgba(20,184,166,0.08);padding:7px 4px;border-radius:7px;">
+                    <div style="font-size:0.58rem;color:var(--slate-light);text-transform:uppercase;">Countries</div>
+                    <b style="font-size:1rem;color:var(--teal);">${countries}</b>
+                </div>
+                <div style="text-align:center;background:rgba(139,92,246,0.08);padding:7px 4px;border-radius:7px;">
+                    <div style="font-size:0.58rem;color:var(--slate-light);text-transform:uppercase;">Cities</div>
+                    <b style="font-size:1rem;color:#8b5cf6;">${cities}</b>
+                </div>
+                <div style="text-align:center;background:rgba(99,102,241,0.08);padding:7px 4px;border-radius:7px;">
+                    <div style="font-size:0.58rem;color:var(--slate-light);text-transform:uppercase;">Locations</div>
+                    <b style="font-size:1rem;color:#818cf8;">${networks}</b>
+                </div>
+            </div>
+            <!-- Row 2: Unique WiFi · Connections · Min · Avg · Max Alt -->
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:5px;">
+                <div style="text-align:center;background:rgba(59,130,246,0.08);padding:7px 2px;border-radius:7px;">
+                    <div style="font-size:0.55rem;color:var(--slate-light);text-transform:uppercase;">WiFi</div>
+                    <b style="font-size:0.95rem;color:#3b82f6;">${uniqueWifi}</b>
+                </div>
+                <div style="text-align:center;background:rgba(255,255,255,0.05);padding:7px 2px;border-radius:7px;">
+                    <div style="font-size:0.55rem;color:var(--slate-light);text-transform:uppercase;">Conns</div>
+                    <b style="font-size:0.95rem;">${conns}</b>
+                </div>
+                <div style="text-align:center;background:rgba(255,255,255,0.05);padding:7px 2px;border-radius:7px;">
+                    <div style="font-size:0.55rem;color:var(--slate-light);text-transform:uppercase;">Min Alt</div>
+                    <b style="font-size:0.95rem;">${minAlt}m</b>
+                </div>
+                <div style="text-align:center;background:rgba(255,255,255,0.05);padding:7px 2px;border-radius:7px;">
+                    <div style="font-size:0.55rem;color:var(--slate-light);text-transform:uppercase;">Avg Alt</div>
+                    <b style="font-size:0.95rem;">${avgAlt}</b>
+                </div>
+                <div style="text-align:center;background:rgba(255,255,255,0.05);padding:7px 2px;border-radius:7px;">
+                    <div style="font-size:0.55rem;color:var(--slate-light);text-transform:uppercase;">Max Alt</div>
+                    <b style="font-size:0.95rem;">${maxAlt}m</b>
+                </div>
+            </div>
+            <!-- Row 3: Furthest Discovery -->
+            <div style="background:rgba(234,179,8,0.08);padding:8px 10px;border-radius:8px;display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span style="font-size:1.1rem;flex-shrink:0;">🚀</span>
+                <div style="min-width:0;">
+                    <div style="font-size:0.58rem;color:var(--slate-light);text-transform:uppercase;">Furthest Discovery</div>
+                    <div style="font-size:0.8rem;font-weight:700;color:#eab308;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${furthestDesc}</div>
+                </div>
+            </div>
+            <button id="friend-stats-close" style="background:var(--teal);color:#fff;border:none;width:100%;padding:8px;border-radius:8px;cursor:pointer;font-size:0.85rem;">Close</button>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('friend-stats-close').onclick = () => modal.remove();
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
 };
 
 window.lastFriendProfiles = {};
@@ -246,6 +443,12 @@ window.onFriendDataReceived = function (jsonStr) {
     try {
         const data = JSON.parse(jsonStr);
         window.lastFriendProfiles = data.profiles || {};
+
+        // Sync My Privacy level from server (source of truth)
+        if (data.myPrivacyLevel) {
+            window._myDefaultAccessLevel = data.myPrivacyLevel;
+            localStorage.setItem('myDefaultAccessLevel', data.myPrivacyLevel);
+        }
 
         const filterPanel = document.getElementById('friend-filter-panel');
         if (filterPanel) {
@@ -268,13 +471,13 @@ window.onFriendDataReceived = function (jsonStr) {
                     const profile = data.profiles[uid] || { displayName: 'Unknown', photoUrl: '' };
                     const imgStr = profile.photoUrl ? profile.photoUrl : 'https://ui-avatars.com/api/?name=' + encodeURIComponent(profile.displayName);
                     const btn = document.createElement('div');
-                    // Friends should default to unselected (opacity 0.4) so we do NOT add them to activeFriendFilters automatically.
-                    // if (!window.activeFriendFilters.has(uid)) window.activeFriendFilters.add(uid);
+                    const uidStr = String(uid);
+                    // Friends are OFF by default — only active if user previously toggled them on
+                    const isActive = window.activeFriendFilters.has(uidStr);
 
-                    btn.style.cssText = `width:40px; height:40px; border-radius:50%; background:url('${imgStr}') center/cover; border:2px solid var(--teal); cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.3); transition: transform 0.2s; opacity: ${window.activeFriendFilters.has(uid) ? '1' : '0.4'};`;
+                    btn.style.cssText = `width:40px; height:40px; border-radius:50%; background:url('${imgStr}') center/cover; border:2px solid ${isActive ? 'var(--teal)' : 'transparent'}; cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.3); transition: transform 0.2s; opacity: ${isActive ? '1' : '0.4'};`;
                     btn.title = profile.displayName;
 
-                    const uidStr = String(uid);
                     btn.onclick = () => {
                         if (window.activeFriendFilters.has(uidStr)) {
                             window.activeFriendFilters.delete(uidStr);
@@ -287,6 +490,7 @@ window.onFriendDataReceived = function (jsonStr) {
                         }
                         renderMarkers();
                         if (typeof updateCharts === 'function') updateCharts();
+                        detectRouteCrossings();
                     };
                     filterPanel.appendChild(btn);
                 });
@@ -316,7 +520,7 @@ window.onFriendDataReceived = function (jsonStr) {
                             </div>
                         </div>
                         <div style="display:flex; gap:6px;">
-                            <button onclick="if(window.Android) window.Android.acceptFriendRequest('${uid}')" style="background:var(--success); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Accept">✓</button>
+                            <button onclick="window.showAcceptModal('${uid}')" style="background:var(--success); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Accept">✓</button>
                             <button onclick="if(window.Android) window.Android.rejectFriendRequest('${uid}')" style="background:var(--danger); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Reject">✕</button>
                         </div>
                     </div>
@@ -328,29 +532,39 @@ window.onFriendDataReceived = function (jsonStr) {
 
         if (data.friends && data.friends.length > 0) {
             data.friends.forEach(uid => {
-                const profile = data.profiles[uid] || { displayName: 'Unknown', photoUrl: '', email: '', lastActive: 0 };
+                const profile = data.profiles[uid] || { displayName: 'Unknown', photoUrl: '', email: '', lastActive: 0, accessLevel: 'full' };
                 const isOnline = Date.now() - (profile.lastActive || 0) < 5 * 60 * 1000;
                 const dotColor = isOnline ? '#10b981' : '#64748b';
+                const accessLevel = profile.accessLevel || 'full';
+                const accessBadge = accessLevel === 'full'
+                    ? `<span style="font-size:0.65rem; background:rgba(20,184,166,0.2); color:var(--teal); padding:2px 6px; border-radius:4px;">🗺️ Full</span>`
+                    : `<span style="font-size:0.65rem; background:rgba(99,102,241,0.2); color:#818cf8; padding:2px 6px; border-radius:4px;">📊 Stats</span>`;
 
                 const imgStr = profile.photoUrl ? `<img src="${profile.photoUrl}" style="width:32px; height:32px; border-radius:50%; object-fit:cover;">` : '<span style="font-size:24px;">👤</span>';
                 fList.innerHTML += `
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; background:rgba(255,255,255,0.05); padding:8px 12px; border-radius:8px;">
-                        <div style="display:flex; align-items:center; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:10px; flex:1;">
                             <div style="position:relative;">
                                 ${imgStr}
                                 <div style="position:absolute; bottom:0; right:-2px; width:12px; height:12px; background:${dotColor}; border:2px solid var(--glass-bg, #0f172a); border-radius:50%;"></div>
                             </div>
                             <div>
-                                <div style="font-weight:600; font-size:0.9rem;">${profile.displayName}</div>
+                                <div style="font-weight:600; font-size:0.9rem;">${profile.displayName} ${accessBadge}</div>
                                 <div style="font-size:0.75rem; color:var(--slate-light);">${profile.email}</div>
                             </div>
                         </div>
                         <div style="display:flex; gap:8px;">
+                            <button onclick="window.showChangeAccessModal('${uid}', '${accessLevel}')" style="background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.4); width:30px; height:30px; border-radius:4px; cursor:pointer; font-size:0.85rem;" title="Change Access Level">🔑</button>
                             <button onclick="window.showFriendStats('${uid}')" style="background:var(--teal); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="View Stats">📊</button>
-                            <button onclick="if(confirm('Are you sure you want to remove this friend? Their points will no longer be visible on your map.')) { if(window.Android) window.Android.removeFriend('${uid}') }" style="background:var(--danger, #ef4444); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Remove Friend">╳</button>
+                            <button onclick="if(confirm('Remove this friend?')) { if(window.Android) window.Android.removeFriend('${uid}') }" style="background:var(--danger, #ef4444); color:#fff; border:none; width:30px; height:30px; border-radius:4px; cursor:pointer;" title="Remove Friend">╳</button>
                         </div>
                     </div>
                 `;
+
+                // Always fetch stats for every friend regardless of access level
+                if (window.Android && window.Android.fetchFriendStats) {
+                    window.Android.fetchFriendStats(uid);
+                }
             });
         } else {
             fList.innerHTML = '<p style="color:var(--slate-light); font-size:0.9rem;">Adding friends will allow you to share network points. Search their Google login email above to send a request.</p>';
@@ -359,6 +573,45 @@ window.onFriendDataReceived = function (jsonStr) {
     } catch (e) {
         console.error("Error parsing friend data", e);
     }
+
+    // Inject stats cards container below friends list (once)
+    const fView = document.getElementById('friend-requests-list')?.closest('section') ||
+        document.getElementById('friends-list')?.closest('section');
+    if (fView && !document.getElementById('friends-stats-cards')) {
+        const statsContainer = document.createElement('div');
+        statsContainer.id = 'friends-stats-cards';
+        statsContainer.style.cssText = 'padding: 0 1rem 1rem; margin-top: 10px;';
+        fView.appendChild(statsContainer);
+    }
+
+    // Inject map extra controls into Leaflet's left column (below zoom buttons)
+    if (!document.getElementById('map-extra-controls')) {
+        const insertControls = () => {
+            const leafletLeft = document.querySelector('.leaflet-top.leaflet-left');
+            if (!leafletLeft) { setTimeout(insertControls, 300); return; }
+
+            const wrap = document.createElement('div');
+            wrap.id = 'map-extra-controls';
+            wrap.className = 'leaflet-bar leaflet-control';
+            wrap.style.cssText = 'margin-top:6px;display:flex;flex-direction:column;gap:0;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,0.14);';
+
+            // Crossings toggle
+            const crossBtn = document.createElement('a');
+            crossBtn.id = 'toggle-crossings-btn';
+            crossBtn.href = '#';
+            crossBtn.title = 'Toggle shared network crossings';
+            crossBtn.style.cssText = 'width:30px;height:30px;background:var(--bg-panel,#1e293b);color:var(--slate-light);display:flex;align-items:center;justify-content:center;font-size:14px;text-decoration:none;opacity:0.55;transition:opacity 0.2s,color 0.2s;border-bottom:1px solid rgba(255,255,255,0.1);';
+            crossBtn.innerHTML = '⚡';
+            crossBtn.onclick = (e) => { e.preventDefault(); window.toggleCrossings(); };
+            wrap.appendChild(crossBtn);
+
+            leafletLeft.appendChild(wrap);
+        };
+        insertControls();
+    }
+
+    renderFriendStatsCards();
+    renderMyPrivacyBlock();
 };
 
 window.friendWifiPoints = [];
@@ -373,10 +626,157 @@ window.onFriendPointsLoaded = function (jsonStr) {
         }));
         renderMarkers();
         if (typeof updateCharts === 'function') updateCharts();
+        // Auto-detect crossings if any friends are active
+        if (window.activeFriendFilters && window.activeFriendFilters.size > 0) {
+            detectRouteCrossings();
+        }
     } catch (e) {
         console.error("Error parsing friend points:", e);
     }
 };
+
+// ─── Route Crossings Detection ───────────────────────────────────────────────
+window._crossingLayerGroup = null;
+window._showCrossings = false; // OFF by default — enable manually
+
+function detectRouteCrossings() {
+    if (!window.friendWifiPoints || !wifiPoints || !map) return;
+    if (!window._crossingLayerGroup) {
+        window._crossingLayerGroup = L.layerGroup().addTo(map);
+    }
+    window._crossingLayerGroup.clearLayers();
+    if (!window._showCrossings) return;
+
+    const activeFriendPts = window.friendWifiPoints.filter(p =>
+        window.activeFriendFilters.has(String(p.ownerId))
+    );
+    if (activeFriendPts.length === 0) return;
+
+    const crossings = [];
+    wifiPoints.forEach(myPt => {
+        if (!myPt.ssid || myPt.lat == null) return;
+        const matched = activeFriendPts.filter(fp => fp.ssid === myPt.ssid && fp.lat != null);
+        matched.forEach(fp => {
+            // Check proximity (within ~200 metres = same access point)
+            const dist = getDistance(myPt.lat, myPt.lng, fp.lat, fp.lng);
+            if (dist > 500) return; // too far apart — different APs with same name
+
+            const friendProfile = (window.lastFriendProfiles || {})[String(fp.ownerId)] || { displayName: 'Your friend' };
+            const myDate = Number(myPt.dateAdded || myPt.date || 0);
+            const friendDate = Number(fp.dateAdded || fp.date || 0);
+            const diffMs = Math.abs(myDate - friendDate);
+            const diffDays = Math.round(diffMs / 86400000);
+            const diffStr = diffDays < 30
+                ? `${diffDays} day${diffDays !== 1 ? 's' : ''}`
+                : `${Math.round(diffDays / 30)} month${Math.round(diffDays / 30) !== 1 ? 's' : ''}`;
+
+            const iWasFirst = myDate < friendDate;
+            const whoFirst = (!myDate || !friendDate) ? 'Both discovered this Wi-Fi' : (iWasFirst
+                ? `You discovered it <b>${diffStr} earlier</b> than ${friendProfile.displayName}`
+                : `${friendProfile.displayName} discovered it <b>${diffStr} earlier</b> than you`);
+
+            const formatDate = (ts) => {
+                if (!ts || isNaN(ts)) return 'Unknown Date';
+                return new Date(ts).toLocaleString([], { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+            };
+            const myDateStr = formatDate(myDate);
+            const fdDateStr = formatDate(friendDate);
+
+            crossings.push({
+                lat: myPt.lat,
+                lng: myPt.lng,
+                ssid: myPt.ssid,
+                whoFirst,
+                myDateStr,
+                fdDateStr,
+                friendName: friendProfile.displayName,
+                myCity: myPt.city || 'Unknown',
+                myCountry: myPt.country || 'Unknown',
+                myAlt: myPt.altitude != null ? Math.round(myPt.altitude) : '—',
+                myNote: myPt.note || '',
+                fdCity: fp.city || 'Unknown',
+                fdCountry: fp.country || 'Unknown',
+                fdAlt: fp.altitude != null ? Math.round(fp.altitude) : '—',
+                fdNote: fp.note || ''
+            });
+        });
+    });
+
+    crossings.forEach(c => {
+        // Animated glowing pulse marker
+        const icon = L.divIcon({
+            className: '',
+            html: `<div style="position:relative;width:36px;height:36px;display:flex;align-items:center;justify-content:center;">
+                <div style="position:absolute;width:36px;height:36px;border-radius:50%;background:rgba(245,158,11,0.22);animation:cxPulse 1.8s ease-out infinite;"></div>
+                <div style="position:absolute;width:26px;height:26px;border-radius:50%;background:rgba(245,158,11,0.32);border:1.5px solid rgba(255,200,50,0.55);"></div>
+                <div style="position:relative;z-index:2;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#d97706);border:2px solid #fff;box-shadow:0 0 10px rgba(245,158,11,0.9);display:flex;align-items:center;justify-content:center;font-size:10px;">&#9889;</div>
+                </div>
+                <style>@keyframes cxPulse{0%{transform:scale(.7);opacity:.9}100%{transform:scale(1.8);opacity:0}}</style>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18],
+            popupAnchor: [0, -22]
+        });
+
+        const popupHtml = `<div class="custom-popup" style="min-width:215px;max-width:245px;font-size:0.82rem;">
+            <div style="display:flex;align-items:center;gap:7px;margin-bottom:6px;">
+                <span style="font-size:1.3rem;line-height:1;">&#9889;</span>
+                <div style="color:#f59e0b;font-weight:700;font-size:0.95em;line-height:1.2;">Route Crossing</div>
+            </div>
+            
+            <div style="color:var(--text-color,#f1f5f9);font-weight:600;font-size:0.95rem;margin-bottom:2px;">${c.ssid}</div>
+            <div style="color:var(--slate-light);font-size:0.75rem;">📍 ${c.myCity}, ${c.myCountry}</div>
+            <div style="color:var(--slate-light);font-size:0.75rem;margin-bottom:4px;">🏔️ ${c.myAlt}m</div>
+            
+            <div style="border-top:1px solid rgba(255,255,255,0.08);margin:6px 0;"></div>
+
+            <div style="margin-bottom:6px;">
+                <span style="color:#94a3b8;font-weight:600;">👤 You:</span> <span style="font-size:0.75rem;">${c.myDateStr}</span>
+                ${c.myNote ? `<br><span style="color:var(--teal,#14b8a6);font-size:0.75rem;">📝 ${c.myNote}</span>` : ''}
+            </div>
+
+            <div style="margin-bottom:6px;">
+                <span style="color:#94a3b8;font-weight:600;">👤 ${c.friendName}:</span> <span style="font-size:0.75rem;">${c.fdDateStr}</span>
+                ${c.fdNote ? `<br><span style="color:var(--teal,#14b8a6);font-size:0.75rem;">📝 ${c.fdNote}</span>` : ''}
+            </div>
+
+            <div style="border-top:1px solid rgba(255,255,255,0.08);margin:6px 0;"></div>
+            
+            <div style="text-align:center;">
+                <span style="color:#10b981;font-size:0.8rem;font-weight:600;">&#127942; ${c.whoFirst}</span>
+            </div>
+        </div>`;
+
+        L.marker([c.lat, c.lng], { icon })
+            .bindPopup(popupHtml, { minWidth: 250 })
+            .addTo(window._crossingLayerGroup);
+    });
+}
+
+window.toggleCrossings = function () {
+    window._showCrossings = !window._showCrossings;
+
+    // Hide/show regular markers (both user and friend live in markerClusterGroup)
+    if (window._showCrossings) {
+        if (map && markerClusterGroup && map.hasLayer(markerClusterGroup)) {
+            map.removeLayer(markerClusterGroup);
+        }
+    } else {
+        if (map && markerClusterGroup && !map.hasLayer(markerClusterGroup)) {
+            map.addLayer(markerClusterGroup);
+        }
+        if (window._crossingLayerGroup) window._crossingLayerGroup.clearLayers();
+    }
+
+    if (window._showCrossings) detectRouteCrossings();
+
+    const btn = document.getElementById('toggle-crossings-btn');
+    if (btn) {
+        btn.style.opacity = window._showCrossings ? '1' : '0.5';
+        btn.style.color = window._showCrossings ? '#f59e0b' : 'var(--slate-light)';
+    }
+};
+
+
 
 // ═══════════════════════════════════════════════════════════
 //  Data persistence
@@ -946,63 +1346,154 @@ function setupEventListeners() {
 
     // Route Replay Logic
     window._replayLayerGroup = L.featureGroup();
-    document.getElementById('play-route-btn').addEventListener('click', async () => {
-        if (window._isPlayingReplay) return;
-        const pts = typeof getActivePoints === 'function' ? getActivePoints() : [];
-        const validPts = pts.filter(p => p.lat != null && p.lng != null).sort((a, b) => Number(a.dateAdded) - Number(b.dateAdded));
+    window._replayState = {
+        playing: false,
+        index: 0,
+        timer: null,
+        pts: [],
+        lines: [] // queue of polylines to manage fading tails
+    };
+
+    window.startReplay = async function (startIndexOrId = 0) {
+        if (window._replayState.playing) return;
+        if (map && map.closePopup) map.closePopup();
+
+        if (typeof buildGlobalConnections === 'function') buildGlobalConnections();
+        const pts = window._allConnections || [];
+
+        const validPts = pts.filter(p => p.lat != null && p.lng != null).sort((a, b) => {
+            const tA = Number(a.dateAdded || a.date || 0);
+            const tB = Number(b.dateAdded || b.date || 0);
+            return tA - tB;
+        });
         if (validPts.length < 2) {
             await customAlert("You need at least 2 connected points to replay a route.");
             return;
         }
+
+        let targetIdx = 0;
+        if (typeof startIndexOrId === 'string') {
+            const found = validPts.findIndex(p => String(p.id) === String(startIndexOrId));
+            if (found >= 0) targetIdx = found;
+        } else {
+            targetIdx = startIndexOrId;
+        }
+
+        window._replayState.pts = validPts;
+        window._replayState.index = targetIdx;
+        window._replayState.startIndex = targetIdx;
+        window._replayState.lines = [];
 
         if (markerClusterGroup) map.removeLayer(markerClusterGroup);
         window._replayLayerGroup.clearLayers();
         window._replayLayerGroup.addTo(map);
 
         document.getElementById('replay-overlay').classList.remove('hidden');
-        window._isPlayingReplay = true;
+        document.getElementById('replay-scrubber').max = validPts.length - 1;
+        document.getElementById('replay-scrubber').value = targetIdx;
+        document.getElementById('pause-replay-btn').innerText = '⏸';
 
-        let index = 0;
-        const stepMs = parseInt(localStorage.getItem('replaySpeed') || '600', 10);
+        window._replayState.playing = true;
+        playReplayTick();
+    };
 
-        const playNext = () => {
-            if (!window._isPlayingReplay) return;
-            const pt = validPts[index];
-            const statusEl = document.getElementById('replay-status');
-            if (statusEl) {
-                statusEl.innerText = `📍 ${index + 1} of ${validPts.length} — ${new Date(Number(pt.dateAdded)).toLocaleDateString()}`;
-            }
+    document.getElementById('play-route-btn').addEventListener('click', () => {
+        window.startReplay(0);
+    });
 
-            const mColor = pt.markerColor || '#10b981';
-            L.circleMarker([pt.lat, pt.lng], { radius: 6, fillColor: mColor, color: '#fff', weight: 2, fillOpacity: 1 }).addTo(window._replayLayerGroup);
+    document.getElementById('pause-replay-btn').addEventListener('click', () => {
+        if (!window._replayState.pts.length) return;
+        window._replayState.playing = !window._replayState.playing;
+        document.getElementById('pause-replay-btn').innerText = window._replayState.playing ? '⏸' : '▶️';
+        if (window._replayState.playing) {
+            playReplayTick();
+        } else {
+            clearTimeout(window._replayState.timer);
+        }
+    });
 
-            if (index > 0) {
-                const prev = validPts[index - 1];
-                L.polyline([[prev.lat, prev.lng], [pt.lat, pt.lng]], { color: '#3b82f6', weight: 3, opacity: 0.7, dashArray: '5, 5' }).addTo(window._replayLayerGroup);
-            }
-
-            map.panTo([pt.lat, pt.lng], { animate: true, duration: stepMs / 1000 });
-
-            index++;
-            if (index < validPts.length) {
-                window._replayTimer = setTimeout(playNext, stepMs);
-            } else {
-                setTimeout(() => {
-                    if (window._isPlayingReplay) stopReplay();
-                }, 2000);
-            }
-        };
-        playNext();
+    document.getElementById('replay-scrubber').addEventListener('input', (e) => {
+        const targetIdx = parseInt(e.target.value, 10);
+        renderReplayState(targetIdx, false);
     });
 
     document.getElementById('stop-replay-btn').addEventListener('click', stopReplay);
 
     function stopReplay() {
-        window._isPlayingReplay = false;
-        clearTimeout(window._replayTimer);
+        window._replayState.playing = false;
+        clearTimeout(window._replayState.timer);
         document.getElementById('replay-overlay').classList.add('hidden');
         if (window._replayLayerGroup) window._replayLayerGroup.clearLayers();
         renderMarkers();
+    }
+
+    function renderReplayState(targetIndex, animate = true) {
+        if (targetIndex < 0 || targetIndex >= window._replayState.pts.length) return;
+        window._replayState.index = targetIndex;
+
+        const pt = window._replayState.pts[targetIndex];
+        const counterEl = document.getElementById('replay-step-counter');
+        const locEl = document.getElementById('replay-location');
+        const dateEl = document.getElementById('replay-date');
+
+        if (counterEl) counterEl.innerText = `Route Replay (${targetIndex + 1}/${window._replayState.pts.length})`;
+        if (locEl) locEl.innerHTML = `📍 ${pt.city || 'Unknown'}${pt.country ? ', ' + pt.country : ''} &mdash; <span style="font-size:0.9rem;font-weight:400;">${pt.ssid || 'Unknown'}</span>`;
+        if (dateEl) dateEl.innerText = new Date(Number(pt.dateAdded || pt.date || 0)).toLocaleString();
+
+        document.getElementById('replay-scrubber').value = targetIndex;
+
+        window._replayLayerGroup.clearLayers();
+        window._replayState.lines = [];
+
+        const start = window._replayState.startIndex || 0;
+        for (let i = start; i <= targetIndex; i++) {
+            const currentPt = window._replayState.pts[i];
+            const mColor = currentPt.markerColor || '#10b981';
+
+            L.circleMarker([currentPt.lat, currentPt.lng], {
+                radius: i === targetIndex ? 8 : 5,
+                fillColor: mColor,
+                color: '#fff',
+                weight: i === targetIndex ? 3 : 1,
+                fillOpacity: 1
+            }).addTo(window._replayLayerGroup);
+
+            if (i > start) {
+                const prevPt = window._replayState.pts[i - 1];
+                L.polyline([[prevPt.lat, prevPt.lng], [currentPt.lat, currentPt.lng]], {
+                    color: '#3b82f6', weight: 3, opacity: 0.6
+                }).addTo(window._replayLayerGroup);
+            }
+        }
+
+        if (animate) {
+            const prevPt = targetIndex > 0 ? window._replayState.pts[targetIndex - 1] : pt;
+            const dist = (targetIndex > 0) ? getDistance(prevPt.lat, prevPt.lng, pt.lat, pt.lng) : 0;
+            if (dist > 100000) {
+                map.flyTo([pt.lat, pt.lng], map.getZoom() < 8 ? map.getZoom() : 8, { animate: true, duration: 1.5 });
+            } else {
+                map.panTo([pt.lat, pt.lng], { animate: true, duration: 0.5 });
+            }
+        } else {
+            map.setView([pt.lat, pt.lng]);
+        }
+    }
+
+    function playReplayTick() {
+        if (!window._replayState.playing) return;
+
+        renderReplayState(window._replayState.index, true);
+
+        if (window._replayState.index < window._replayState.pts.length - 1) {
+            window._replayState.index++;
+            const selectEl = document.getElementById('replay-speed-select');
+            const stepMs = selectEl ? parseInt(selectEl.value, 10) : 800;
+            window._replayState.timer = setTimeout(playReplayTick, stepMs);
+        } else {
+            setTimeout(() => {
+                if (window._replayState.playing) stopReplay();
+            }, 3000);
+        }
     }
 
     const myLocBtn = document.getElementById('my-location-btn');
@@ -1239,11 +1730,14 @@ function renderMarkers() {
                         <p>🏔️ Altitude: ${altStr} m</p>
                         <p>🔗 Connections: ${pt.connections || 1}</p>
                         <p>📝 Note: ${pt.note || 'None'}</p>
-                        <div style="display:flex;gap:8px;margin-top:8px;">
+                        <div style="display:flex;gap:6px;margin-top:8px;">
                             <button class="popup-btn" style="flex:1;background:var(--btn-hist-bg);color:var(--btn-hist-text);" onclick="window.viewHistory('${pt.id}')">History</button>
                             <button class="popup-btn" style="flex:1;background:${mColor};color:#fff;text-shadow:0 1px 2px rgba(0,0,0,0.5);" onclick="window.openEditModal('${pt.id}')">Edit</button>
                         </div>
-                        ${!pt.isHome ? `<button class="popup-btn" style="width:100%;margin-top:8px;background:linear-gradient(135deg, #eab308, #d97706);color:#fff;font-weight:bold;" onclick="window.setAsHome('${pt.id}')">🏠 Set as Home</button>` : ''}
+                        <div style="display:flex;gap:6px;margin-top:6px;">
+                            <button class="popup-btn popup-btn-play" style="flex:1;background:rgba(99,102,241,0.2);color:#818cf8;border:1px solid rgba(99,102,241,0.4);" onclick="window.startReplay('${pt.id}')">▶️ Play</button>
+                            ${!pt.isHome ? `<button class="popup-btn popup-btn-home" style="flex:1;background:linear-gradient(135deg, #eab308, #d97706);color:#fff;font-weight:bold;" onclick="window.setAsHome('${pt.id}')">🏠 Set Home</button>` : ''}
+                        </div>
                     </div>`;
                     const marker = L.marker([pt.lat, pt.lng], { icon }).bindPopup(popup, { minWidth: 220 });
                     markerClusterGroup.addLayer(marker);
@@ -1265,6 +1759,7 @@ function renderMarkers() {
                     const profile = window.lastFriendProfiles ? window.lastFriendProfiles[ownerIdStr] : null;
                     const displayName = profile && profile.displayName ? profile.displayName : 'Friend';
                     const photoUrl = profile && profile.photoUrl ? profile.photoUrl : 'https://ui-avatars.com/api/?name=F';
+                    const accessLevel = profile && profile.accessLevel ? profile.accessLevel : 'full';
 
                     const html = `
                         <div style="width:16px; height:16px; background-color:var(--teal); border-radius:8px 8px 8px 0; transform:rotate(-45deg); border:1px solid #fff; box-shadow:0 0 5px var(--teal); position:relative;">
@@ -1274,15 +1769,33 @@ function renderMarkers() {
                     const icon = L.divIcon({ className: '', html: html, iconSize: [20, 20], iconAnchor: [8, 20], popupAnchor: [0, -20] });
 
                     const mColor = pt.markerColor || '#14b8a6';
-                    const dateStr = pt.dateAdded ? new Date(pt.dateAdded).toLocaleDateString('en-US') : 'Unknown';
+                    const dateStr = pt.dateAdded ? new Date(pt.dateAdded).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Unknown';
+                    const altStr = pt.altitude !== undefined && pt.altitude !== null ? pt.altitude : '0';
+                    const locationStr = [pt.city, pt.country].filter(Boolean).join(', ') || 'Unknown';
+
+                    let popupDetails = '';
+                    if (accessLevel === 'full') {
+                        popupDetails = `
+                            <p>📍 ${locationStr}</p>
+                            <p>📅 ${dateStr}</p>
+                            <p>🏔️ Altitude: ${altStr} m</p>
+                            <p>🔗 Connections: ${pt.connections || 1}</p>
+                            <p>📝 Note: ${pt.note || 'None'}</p>
+                            <div style="display:flex;gap:6px;margin-top:6px;">
+                                <button class="popup-btn popup-btn-play" style="flex:1;background:rgba(99,102,241,0.2);color:#818cf8;border:1px solid rgba(99,102,241,0.4);" onclick="window.startReplay('${pt.id}')">▶️ Play</button>
+                            </div>
+                        `;
+                    } else {
+                        popupDetails = `<p>📍 ${locationStr}</p><div style="margin-top:4px; font-size:0.75rem; color:var(--slate-light);">Stats only access</div>`;
+                    }
+
                     const popup = `<div class="custom-popup">
-                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-                            <img src="${photoUrl}" style="width:30px; height:30px; border-radius:50%; object-fit:cover; border:1px solid var(--teal);" onerror="this.src='https://ui-avatars.com/api/?name=F';">
-                            <b style="color:var(--teal); font-size:1.1rem;">${displayName}</b>
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                            <img src="${photoUrl}" style="width:26px; height:26px; border-radius:50%; object-fit:cover; border:1px solid var(--teal);" onerror="this.src='https://ui-avatars.com/api/?name=F';">
+                            <b style="color:var(--teal); font-size:0.95rem;">${displayName}</b>
                         </div>
-                        <div style="color:var(--slate-light);">SSID:</div> 
-                        <b style="font-size:1.1rem; color:var(--text-color);">${pt.ssid || 'Unknown'}</b><br>
-                        <div style="margin-top:6px; font-size:0.8rem; color:var(--slate-light);">Visibility: <span style="color:#10b981;">Public</span></div>
+                        <b style="font-size:1rem; color:var(--text-color);">${pt.ssid || 'Unknown'}</b>
+                        ${popupDetails}
                     </div>`;
                     const marker = L.marker([pt.lat, pt.lng], { icon }).bindPopup(popup, { minWidth: 200 });
                     markerClusterGroup.addLayer(marker);
@@ -1625,6 +2138,18 @@ function updateCharts() {
         document.getElementById('total-connections-val').innerText = totalConnections;
         document.getElementById('unique-connections-val').innerText = pts.length;
 
+        const uniqueWifiCount = pts.filter(p => !p.networkType || p.networkType === 'wifi').length;
+        const uiWifiVal = document.getElementById('unique-wifi-val');
+        if (uiWifiVal) uiWifiVal.innerText = uniqueWifiCount;
+
+        // Unique countries and cities
+        const uniqueCountries = new Set(pts.map(p => p.country).filter(Boolean));
+        const uniqueCities = new Set(pts.map(p => p.city).filter(Boolean));
+        const countriesEl = document.getElementById('unique-countries-val');
+        const citiesEl = document.getElementById('unique-cities-val');
+        if (countriesEl) countriesEl.innerText = uniqueCountries.size;
+        if (citiesEl) citiesEl.innerText = uniqueCities.size;
+
         // Furthest Discovery Logic
         const homeElVal = document.getElementById('furthest-point-val');
         const homeElDesc = document.getElementById('furthest-point-desc');
@@ -1674,7 +2199,8 @@ function updateCharts() {
             document.getElementById('alt-min-val').innerText = min + 'm';
             document.getElementById('alt-max-val').innerText = max + 'm';
             document.getElementById('alt-avg-val').innerText = avg + 'm';
-            document.getElementById('alt-median-val').innerText = Math.round(median) + 'm';
+            const medianEl = document.getElementById('alt-median-val');
+            if (medianEl) medianEl.innerText = Math.round(median) + 'm';
 
             // Build DYNAMIC Histogram — bins auto-scale to actual altitude range
             const BINS = 6;
@@ -1708,7 +2234,8 @@ function updateCharts() {
             document.getElementById('alt-min-val').innerText = '0m';
             document.getElementById('alt-max-val').innerText = '0m';
             document.getElementById('alt-avg-val').innerText = '0m';
-            document.getElementById('alt-median-val').innerText = '0m';
+            const medianEl = document.getElementById('alt-median-val');
+            if (medianEl) medianEl.innerText = '0m';
             charts.altitudeInfo.data = { labels: ['No Data'], datasets: [{ data: [0] }] };
             charts.altitudeInfo.update();
         }
@@ -1872,11 +2399,16 @@ function buildGlobalConnections() {
             date: Number(pt.dateAdded),
             altitude: pt.altitude || 0,
             ssid: pt.ssid,
+            networkType: pt.networkType || ((pt.ssid === 'Cellular Data') ? 'cellular' : 'wifi'),
+            id: pt.id || '',
             city: pt.city || 'Unknown',
             country: pt.country || '',
             note: pt.note || '',
             latestNote,
-            lastConnectionDate
+            lastConnectionDate,
+            lat: pt.lat,
+            lng: pt.lng,
+            markerColor: pt.markerColor
         });
 
         (pt.history || []).forEach(h => {
@@ -1884,11 +2416,16 @@ function buildGlobalConnections() {
                 date: Number(h.date),
                 altitude: h.altitude || 0,
                 ssid: pt.ssid,
+                networkType: pt.networkType || ((pt.ssid === 'Cellular Data') ? 'cellular' : 'wifi'),
+                id: pt.id || '',
                 city: pt.city || 'Unknown',
                 country: pt.country || '',
                 note: h.note || '',
                 latestNote,
-                lastConnectionDate
+                lastConnectionDate,
+                lat: pt.lat,
+                lng: pt.lng,
+                markerColor: pt.markerColor
             });
         });
     });
@@ -2040,26 +2577,53 @@ function updateAltitudeTimeChart() {
     const filtered = window._allConnections.filter(c => c.date >= cutoff);
     window._filteredAltConnections = filtered;
 
-    const labels = filtered.map(c => {
+    let dataPoints = filtered;
+
+    // Aggregation Logic (Downsampling)
+    if (dataPoints.length > 30) {
+        const bucketSizeMs = window._currentAltRange === '1D'
+            ? 3600000 // 1 hour buckets
+            : 86400000; // 1 day buckets
+
+        const buckets = {};
+        dataPoints.forEach(c => {
+            const bucketKey = Math.floor(c.date / bucketSizeMs) * bucketSizeMs;
+            if (!buckets[bucketKey]) buckets[bucketKey] = [];
+            buckets[bucketKey].push(c.altitude || 0);
+        });
+
+        dataPoints = Object.keys(buckets).sort((a, b) => a - b).map(key => {
+            const arr = buckets[key];
+            const avgAlt = Math.round(arr.reduce((s, v) => s + v, 0) / arr.length);
+            return {
+                date: parseInt(key, 10),
+                altitude: avgAlt
+            };
+        });
+    }
+
+    const labels = dataPoints.map(c => {
         const d = new Date(c.date);
         return window._currentAltRange === '1D'
             ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             : d.toLocaleDateString([], { month: 'short', day: 'numeric' });
     });
 
-    const data = filtered.map(c => c.altitude || 0);
+    const data = dataPoints.map(c => c.altitude || 0);
 
     charts.altitudeTime.data = {
         labels: labels.length ? labels : ['No data'],
         datasets: [{
-            label: 'Altitude (m)',
+            label: dataPoints.length !== filtered.length ? 'Altitude (m) - Averaged' : 'Altitude (m)',
             data: data.length ? data : [0],
             borderColor: '#f59e0b',
             backgroundColor: 'rgba(245,158,11,0.1)',
             fill: true,
             pointBackgroundColor: '#f59e0b',
-            pointRadius: data.length > 50 ? 2 : 4,
-            tension: 0.2
+            pointRadius: data.length > 20 ? 0 : 4,
+            pointHitRadius: 10,
+            pointHoverRadius: 6,
+            tension: 0.4
         }]
     };
     charts.altitudeTime.options.plugins.legend.labels = { color: Chart.defaults.color };

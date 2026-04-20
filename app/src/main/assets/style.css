@@ -819,29 +819,39 @@ body.light-theme .marker-btn {
     color: var(--text-main);
 }
 
+/* це розмір "жирного" тексту (назв точок).*/
 .custom-popup b {
     color: var(--teal);
-    font-size: 1.2em;
+    font-size: 1.05em;
     display: block;
-    margin-bottom: 5px;
+    margin-bottom: 2px;
 }
 
+/* це розмір звичайного тексту всередині.*/
 .custom-popup p {
-    margin: 5px 0;
+    margin: 2px 0;
     color: var(--slate-light);
     font-size: 0.9em;
 }
 
+/* розмір кнопок "Play Route" та "Set Home".*/
 .custom-popup .popup-btn {
-    margin-top: 10px;
+    margin-top: 5px;
     background: var(--teal);
     color: #0f172a;
     border: none;
-    padding: 8px 12px;
-    border-radius: 6px;
+    padding: 5px 8px;
+    border-radius: 5px;
     cursor: pointer;
     font-weight: 600;
     width: 100%;
+    font-size: 0.8rem;
+}
+
+.custom-popup .popup-btn.popup-btn-play,
+.custom-popup .popup-btn.popup-btn-home {
+    padding: 3px 6px;
+    font-size: 0.75rem;
 }
 
 .custom-popup .popup-btn:hover {
